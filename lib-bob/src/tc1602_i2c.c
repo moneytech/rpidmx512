@@ -2,7 +2,7 @@
  * @file tc1602_i2c.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,82 +25,49 @@
 
 #include <stdint.h>
 
-#include "bcm2835.h"
-#include "bcm2835_i2c.h"
+#include "bob.h"
 
 #include "i2c.h"
-
 #include "tc1602.h"
 #include "tc1602_i2c.h"
 
-#include "device_info.h"
-
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
-/**
- *
- * @param device_info
- * @param data
- */
-static void lcd_toggle_enable(const uint8_t data) {
+static void lcd_toggle_enable(uint8_t data) {
 	i2c_write(data | TC1602_EN | TC1602_BACKLIGHT);
 	i2c_write((data & ~TC1602_EN) | TC1602_BACKLIGHT);
 }
 
-/**
- *
- * @param device_info
- * @param data
- */
-static void write_4bits(const device_info_t *device_info, const uint8_t data) {
+static void write_4bits(const device_info_t *device_info, uint8_t data) {
 	i2c_setup(device_info);
 
 	i2c_write(data);
 	lcd_toggle_enable(data);
 }
 
-/**
- *
- * @param device_info
- * @param data
- */
-static void write_cmd(const device_info_t *device_info, const uint8_t cmd) {
+static void write_cmd(const device_info_t *device_info, uint8_t cmd) {
 	write_4bits(device_info, cmd & (uint8_t) 0xF0);
 	write_4bits(device_info, (cmd << 4) & (uint8_t) 0xF0);
 	udelay(EXEC_TIME_CMD);
 }
 
-/**
- *
- * @param device_info
- * @param data
- */
 static void write_reg(const device_info_t *device_info, const uint8_t reg) {
 	write_4bits(device_info, (uint8_t) TC1602_RS | (reg & (uint8_t) 0xF0));
 	write_4bits(device_info, (uint8_t) TC1602_RS | ((reg << 4) & (uint8_t) 0xF0));
 	udelay(EXEC_TIME_REG);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
 const bool tc1602_i2c_start(device_info_t *device_info) {
 
-	bcm2835_i2c_begin();
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = TC1602_I2C_DEFAULT_SLAVE_ADDRESS;
@@ -128,12 +95,6 @@ const bool tc1602_i2c_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- *
- * @param device_info
- * @param data
- * @param length
- */
 void tc1602_i2c_text(const device_info_t *device_info, const char *data, uint8_t length) {
 	uint8_t i;
 
@@ -147,34 +108,17 @@ void tc1602_i2c_text(const device_info_t *device_info, const char *data, uint8_t
 
 }
 
-/**
- *
- * @param device_info
- * @param data
- * @param length
- */
-void tc1602_i2c_text_line_1(const device_info_t *device_info, const char *data, const uint8_t length) {
+void tc1602_i2c_text_line_1(const device_info_t *device_info, const char *data, uint8_t length) {
 	write_cmd(device_info, TC1602_LINE_1);
 	tc1602_i2c_text(device_info, data, length);
 }
 
-/**
- *
- * @param device_info
- * @param data
- * @param length
- */
-void tc1602_i2c_text_line_2(const device_info_t *device_info, const char *data, const uint8_t length) {
+void tc1602_i2c_text_line_2(const device_info_t *device_info, const char *data, uint8_t length) {
 	write_cmd(device_info, TC1602_LINE_2);
 	tc1602_i2c_text(device_info, data, length);
 }
 
-/**
- *
- * @param device_info
- */
 void tc1602_i2c_cls(const device_info_t *device_info) {
 	write_cmd(device_info, (uint8_t) TC1602_IC_CLS);
 	udelay(EXEC_TIME_CLS - EXEC_TIME_CMD);
 }
-

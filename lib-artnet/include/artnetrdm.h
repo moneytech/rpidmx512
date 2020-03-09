@@ -4,11 +4,8 @@
  */
 /**
  * Art-Net Designed by and Copyright Artistic Licence Holdings Ltd.
- *
- * Art-Net 3 Protocol Release V1.4 Document Revision 1.4bk 23/1/2016
- *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,11 +35,11 @@ class ArtNetRdm {
 public:
 	virtual ~ArtNetRdm(void);
 
-	virtual void Full(void)=0;
-	virtual const uint8_t GetUidCount(void)=0;
-	virtual void Copy(uint8_t *)=0;
+	virtual void Full(uint8_t nPort)=0;
+	virtual uint8_t GetUidCount(uint8_t nPort)=0;
+	virtual void Copy(uint8_t nPort, uint8_t *)=0;
 
-	virtual const uint8_t *Handler(const uint8_t *)=0;
+	virtual const uint8_t *Handler(uint8_t nPort, const uint8_t *)=0;
 };
 
 #endif /* ARTNETRDM_H_ */

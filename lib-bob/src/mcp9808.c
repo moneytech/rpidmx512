@@ -2,7 +2,7 @@
  * @file mcp9808.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,13 +26,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "bcm2835_i2c.h"
-
-#include "i2c.h"
+#include "bob.h"
 
 #include "mcp9808.h"
-
-#include "device_info.h"
 
 #define MCP9808_REG_UPPER_TEMP		0x02	///<
 #define MCP9808_REG_LOWER_TEMP		0x03	///<
@@ -41,28 +37,18 @@
 #define MCP9808_REG_MANUF_ID		0x06	///<
 #define MCP9808_REG_DEVICE_ID		0x07	///<
 
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const bool mcp9808_start(device_info_t *device_info) {
-
-	bcm2835_i2c_begin();
+bool mcp9808_start(device_info_t *device_info) {
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = MCP9808_I2C_DEFAULT_SLAVE_ADDRESS;
@@ -89,12 +75,7 @@ const bool mcp9808_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float mcp9808_get_temperature(const device_info_t *device_info) {
+float mcp9808_get_temperature(const device_info_t *device_info) {
 	uint16_t val;
 	float temp;
 

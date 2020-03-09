@@ -2,7 +2,7 @@
  * @file hardware.h
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2019-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,96 +26,35 @@
 #ifndef HARDWARE_H_
 #define HARDWARE_H_
 
-#include <stdint.h>
+#ifdef __cplusplus
 
-#include "bcm2835.h"
-#include "bcm2835_vc.h"
-#include "bcm2835_wdog.h"
-#include "bcm2835_rng.h"
-
-struct hardware_time {
-	uint8_t second;		///< Seconds.		[0-59]
-	uint8_t minute;		///< Minutes.		[0-59]
-	uint8_t hour;		///< Hours.			[0-23]
-	uint8_t day;		///< Day.		 	[1-31]
-	uint8_t month;		///< Month.			[1-12]
-	uint16_t year;		///< Year			[1970-....]
+enum THardwareLedStatus {
+	HARDWARE_LED_OFF = 0,
+	HARDWARE_LED_ON,
+	HARDWARE_LED_HEARTBEAT,
+	HARDWARE_LED_FLASH
 };
 
-#ifdef __cplusplus
-extern "C" {
+enum TBootDevice {
+	BOOT_DEVICE_UNK,
+	BOOT_DEVICE_FEL,	// H3 Only
+	BOOT_DEVICE_MMC0,
+	BOOT_DEVICE_SPI,	// H3 Only
+	BOOT_DEVICE_HDD
+};
+
+#if defined (BARE_METAL)
+ #if defined (H3)
+  #include "h3/hardware.h"
+ #else
+  #include "rpi/hardware.h"
+ #endif
+#else
+ #include "linux/hardware.h"
 #endif
 
-extern void hardware_init(void);
-extern void hardware_reboot(void);
-extern void hardware_led_init(void);
-extern void hardware_led_set(const int);
-extern const uint32_t hardware_uptime_seconds(void);
-extern const int32_t hardware_firmware_get_revision(void);
-extern /*@shared@*/const char *hardware_firmware_get_copyright(void);
-extern const uint8_t hardware_firmware_get_copyright_length(void);
-extern const int32_t hardware_board_get_model_id(void);
-extern /*@shared@*/const char *hardware_board_get_model(void);
-extern const uint8_t hardware_board_get_model_length(void);
-extern /*@shared@*/const char *hardware_board_get_soc(void);
-extern const int32_t hardware_get_core_temperature(void);
-extern void hardware_rtc_set(const struct hardware_time *);
-
-/**
- *
- * @return
- */
-/*@unused@*/inline static uint32_t hardware_micros(void) {
-	return BCM2835_ST->CLO;
-}
-
-/**
- *
- * @param mac_address
- */
-/*@unused@*/inline static int32_t hardware_get_mac_address(/*@out@*/uint8_t *mac_address) {
-	return bcm2835_vc_get_board_mac_address(mac_address);
-}
-
-/**
- *
- */
-/*@unused@*/inline static void hardware_watchdog_init(void) {
-	bcm2835_watchdog_init();
-}
-
-/**
- *
- */
-/*@unused@*/inline static void hardware_watchdog_feed(void) {
-	bcm2835_watchdog_feed();
-}
-
-/**
- *
- */
-/*@unused@*/inline static void hardware_watchdog_stop(void) {
-	bcm2835_watchdog_stop();
-}
-
-/**
- *
- * @param usec
- */
-/*@unused@*/inline static void hardware_delay_us(const uint64_t usec) {
-	udelay(usec);
-}
-
-/**
- *
- * @return
- */
-/*@unused@*/inline static uint32_t hardware_random_number(void) {
-	return bcm2835_rng_get_number();
-}
-
-#ifdef __cplusplus
-}
+#elif defined(BARE_METAL)
+ #include "c/hardware.h"
 #endif
 
 #endif /* HARDWARE_H_ */

@@ -1,4 +1,6 @@
 #
-EXTRA_INCLUDES = ../lib-esp8266/include ../lib-utils/include
+DEFINES = NDEBUG
+#
+EXTRA_INCLUDES = ../lib-network/include ../lib-properties/include
 #
 include ../firmware-template/lib/Rules.mk

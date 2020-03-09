@@ -2,7 +2,7 @@
  * @file bcm2835_i2c.h
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -56,7 +56,7 @@
 /// Clock divided is based on nominal base clock rate of 250MHz
 typedef enum {
 	BCM2835_I2C_CLOCK_DIVIDER_2500	= 2500,		///< 2500 = 10us = 100 kHz
-	BCM2835_I2C_CLOCK_DIVIDER_626	= 626,		///< 622 = 2.504us = 399.3610 kHz
+	BCM2835_I2C_CLOCK_DIVIDER_626	= 626,		///< 626 = 2.504us = 399.3610 kHz
 	BCM2835_I2C_CLOCK_DIVIDER_150	= 150,		///< 150 = 60ns = 1.666 MHz (default at reset)
 	BCM2835_I2C_CLOCK_DIVIDER_148	= 148,		///< 148 = 59ns = 1.689 MHz
 } bcm2835I2CClockDivider;
@@ -69,10 +69,15 @@ typedef enum {
 	BCM2835_I2C_REASON_ERROR_DATA 	= 0x04		///< Not all data is sent / received
 } bcm2835I2CReasonCodes;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern void bcm2835_i2c_begin(void);
 extern void bcm2835_i2c_end(void);
-extern uint8_t bcm2835_i2c_write(/*@null@*/const char *, const uint32_t);
-extern uint8_t bcm2835_i2c_read(/*@out@*/char*, const uint32_t);
+extern uint8_t bcm2835_i2c_write(/*@null@*/const char *, uint32_t);
+extern uint8_t bcm2835_i2c_read(/*@out@*/char *, uint32_t);
+extern void bcm2835_i2c_set_baudrate(uint32_t);
 
 /**
  * @ingroup I2C
@@ -80,7 +85,7 @@ extern uint8_t bcm2835_i2c_read(/*@out@*/char*, const uint32_t);
  * Sets the I2C slave address
  * @param addr buffer for read.
  */
-/*@unused@*/inline static void bcm2835_i2c_setSlaveAddress(const uint8_t addr) {
+/*@unused@*/inline static void bcm2835_i2c_setSlaveAddress(uint8_t addr) {
 	BCM2835_BSC1->A = addr;
 }
 
@@ -90,8 +95,11 @@ extern uint8_t bcm2835_i2c_read(/*@out@*/char*, const uint32_t);
  * Sets the I2C clock divider and therefore the I2C clock speed.
  * @param divider The desired I2C clock divider, one of \ref bcm2835I2CClockDivider
  */
-/*@unused@*/inline static void bcm2835_i2c_setClockDivider(const uint16_t divider) {
+/*@unused@*/inline static void bcm2835_i2c_setClockDivider(uint16_t divider) {
 	BCM2835_BSC1->DIV = divider;
 }
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* BCM2835_I2C_H_ */

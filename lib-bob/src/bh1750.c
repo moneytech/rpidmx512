@@ -2,7 +2,7 @@
  * @file bh1750.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,12 +26,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "bcm2835_i2c.h"
-#include "i2c.h"
+#include "bob.h"
 
 #include "bh1750.h"
-
-#include "device_info.h"
 
 #define BH1750_POWER_DOWN					0x00	///<
 #define BH1750_POWER_ON						0x01	///<
@@ -43,35 +40,24 @@
 #define BH1750_ONE_TIME_HIGH_RES_MODE_2		0x21	///<
 #define BH1750_ONE_TIME_LOW_RES_MODE		0x23	///<
 
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const bool bh1750_start(device_info_t *device_info) {
-	char buf;
+bool bh1750_start(device_info_t *device_info) {
+	i2c_begin();
 
-	bcm2835_i2c_begin();
-
-	if (device_info->slave_address == (uint8_t) 0) {
+	if (device_info->slave_address == 0) {
 		device_info->slave_address = BH1750_I2C_DEFAULT_SLAVE_ADDRESS;
 	}
 
-	if (device_info->speed_hz == (uint32_t) 0) {
+	if (device_info->speed_hz == 0) {
 		device_info->fast_mode = true;
 	}
 
@@ -81,18 +67,12 @@ const bool bh1750_start(device_info_t *device_info) {
 		return false;
 	}
 
-	buf = BH1750_CONTINUOUS_HIGH_RES_MODE;
-	(void) bcm2835_i2c_write(&buf, 1);
+	i2c_write(BH1750_CONTINUOUS_HIGH_RES_MODE);
 
 	return true;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const uint16_t bh1750_get_level(const device_info_t *device_info) {
+uint16_t bh1750_get_level(const device_info_t *device_info) {
 	uint16_t level;
 
 	i2c_setup(device_info);

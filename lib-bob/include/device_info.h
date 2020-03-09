@@ -2,7 +2,7 @@
  * @file device_info.h
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +43,7 @@ typedef struct _device_info {
 	struct _device_info_internal {
 		uint8_t adc_channel;	///<
 		uint16_t clk_div;		///<
+		uint8_t count;			///<
 	} internal;
 } device_info_t;
 

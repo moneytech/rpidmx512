@@ -2,7 +2,7 @@
  * @file htu21d.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,42 +25,47 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#ifndef NDEBUG
+ #include <stdio.h>
+#endif
 
-#include "bcm2835.h"
-#include "bcm2835_i2c.h"
+#include "bob.h"
 
 #include "i2c.h"
-
 #include "htu21d.h"
 
-#include "device_info.h"
-
-// TODO Add more
 #define HTU21D_TEMP		0xF3
 #define	HTU21D_HUMID	0xF5
 
-/**
- *
- * @param device_info
- */
+/*static uint8_t get_id_2nd(const device_info_t *device_info) {
+	char buffer[6] = { 0xFC, 0xC9 };
+
+	bcm2835_i2c_write(buffer, 2);
+
+	bcm2835_i2c_read(buffer, 6);
+
+	int i = 0;
+	for(i = 0; i < 6; i++) {
+		printf("%.2x:", buffer[i]);
+	}
+	printf("\n");
+
+	return buffer[0];
+
+}*/
+
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const bool htu21d_start(device_info_t *device_info) {
-
-	bcm2835_i2c_begin();
+bool htu21d_start(device_info_t *device_info) {
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = HTU21D_I2C_DEFAULT_SLAVE_ADDRESS;
@@ -76,33 +81,26 @@ const bool htu21d_start(device_info_t *device_info) {
 		return false;
 	}
 
+/*	if (get_id_2nd(device_info) != 0x32) {
+		return false;
+	}*/
+
 	return true;
 }
 
-/**
- *
- * @param cmd
- * @return
- */
-static const uint16_t get_raw_value(const uint8_t cmd) {
+static uint16_t get_raw_value(uint8_t cmd) {
 	char buffer[3];
 
-	buffer[0] = (char) cmd;
-	bcm2835_i2c_write(buffer, 1);
+	i2c_write(cmd);
 
 	udelay(80 * 1000);	// datasheet says 50ms
 
-	bcm2835_i2c_read(buffer, 3);
+	(void) i2c_read(buffer, 3);
 
 	return (((uint16_t) buffer[0] << 8) | ((uint16_t) buffer[1])) & (uint16_t) 0xFFFC;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float htu21d_get_temperature(const device_info_t *device_info) {
+float htu21d_get_temperature(const device_info_t *device_info) {
 	uint16_t value;
 	float temp;
 
@@ -115,12 +113,7 @@ const float htu21d_get_temperature(const device_info_t *device_info) {
 	return -46.85 + (175.72 * temp);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float htu21d_get_humidity(const device_info_t *device_info) {
+float htu21d_get_humidity(const device_info_t *device_info) {
 	uint16_t value;
 	float humid;
 
@@ -132,3 +125,4 @@ const float htu21d_get_humidity(const device_info_t *device_info) {
 
 	return -6.0 + (125.0 * humid);
 }
+

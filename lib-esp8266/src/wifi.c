@@ -2,7 +2,7 @@
  * @file wifi.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,18 +25,22 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "wifi.h"
 
 #include "console.h"
-#include "oled.h"
 
 #include "ap_params.h"
 #include "network_params.h"
 #include "fota.h"
 #include "fota_params.h"
 
-#include "util.h"
+#include "oled.h"
+
+#ifndef ALIGNED
+ #define ALIGNED __attribute__ ((aligned (4)))
+#endif
 
 static const char *WIFI_NOT_CONNECTED ALIGNED = "Wifi not connected";
 static const char *STARTING_WIFI ALIGNED = "Starting Wifi ...";
@@ -47,13 +51,13 @@ static 	_wifi_mode opmode = WIFI_OFF;
 static const char *ssid = NULL;
 
 const bool wifi(const struct ip_info *info) {
-	oled_info_t oled_info = { OLED_128x64_I2C_DEFAULT };
-	bool oled_connected = false;
 	uint8_t mac_address[6] ALIGNED;
 	char *ap_password = NULL;
 	struct ip_info ip_config;
 
-	oled_connected = oled_start(&oled_info);
+	oled_info_t oled_info = { OLED_128x64_I2C_DEFAULT };
+	const bool oled_connected =  oled_start(&oled_info);
+
 
 	if (!wifi_detect()){
 		(void) console_status(CONSOLE_YELLOW, WIFI_NOT_CONNECTED);
@@ -71,11 +75,12 @@ const bool wifi(const struct ip_info *info) {
 
 	printf("ESP8266 information\n");
 	printf(" SDK      : %s\n", system_get_sdk_version());
-	printf(" Firmware : %s\n\n", wifi_get_firmware_version());
+	printf(" Firmware : %s\n", wifi_get_firmware_version());
 
 	if (network_params_init()) {
 		(void) console_status(CONSOLE_YELLOW, CHANGING_TO_STATION_MODE);
 		OLED_CONNECTED(oled_connected, oled_status(&oled_info, CHANGING_TO_STATION_MODE));
+
 		ssid = network_params_get_ssid();
 		if (network_params_is_use_dhcp()) {
 			wifi_station(ssid, network_params_get_password());
@@ -108,11 +113,14 @@ const bool wifi(const struct ip_info *info) {
 		printf(" IP-address  : " IPSTR "\n", IP2STR(ip_config.ip.addr));
 		printf(" Netmask     : " IPSTR "\n", IP2STR(ip_config.netmask.addr));
 		printf(" Gateway     : " IPSTR "\n", IP2STR(ip_config.gw.addr));
+
 		if (opmode == WIFI_STA) {
 			const _wifi_station_status status = wifi_station_get_connect_status();
 			printf("      Status : %s\n", wifi_station_status(status));
+
 			if (status != WIFI_STATION_GOT_IP) {
 				(void) console_error("Not connected!");
+
 				if (oled_connected) {
 					oled_set_cursor(&oled_info, 2, 0);
 					(void) oled_puts(&oled_info, wifi_station_status(status));
@@ -120,6 +128,7 @@ const bool wifi(const struct ip_info *info) {
 					(void) oled_printf(&oled_info, "SSID : %s\n", network_params_get_ssid());
 					oled_status(&oled_info, "E: Not connected!");
 				}
+
 				for (;;)
 					;
 			}
@@ -145,10 +154,6 @@ const bool wifi(const struct ip_info *info) {
 	return true;
 }
 
-/**
- *
- * @return
- */
 const char *wifi_get_ssid(void) {
 	if (opmode == WIFI_STA ||opmode == WIFI_STA) {
 		return ssid;

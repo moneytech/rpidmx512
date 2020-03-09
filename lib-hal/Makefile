@@ -1,4 +1,8 @@
 #
-EXTRA_INCLUDES = ../lib-bcm2835/include ../lib-bob/include ../lib-fb/include ../lib-ff11/src ../lib-utils/include ../lib-uuid/include
+DEFINES = NDEBUG
 #
-include ../firmware-template/lib/Rules.mk		
+EXTRA_INCLUDES = ../lib-bob/include 
+#
+EXTRA_SRCDIR = posix ff12c ff12c/option src/rpi/sdcard
+#
+include ../firmware-template/lib/Rules.mk

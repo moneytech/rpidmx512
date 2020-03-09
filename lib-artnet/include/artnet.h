@@ -4,11 +4,8 @@
  */
 /**
  * Art-Net Designed by and Copyright Artistic Licence Holdings Ltd.
- *
- * Art-Net 3 Protocol Release V1.4 Document Revision 1.4bk 23/1/2016
- *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,13 +29,82 @@
 #ifndef ARTNET_H_
 #define ARTNET_H_
 
+#define ARTNET_PROTOCOL_REVISION	14
+
+#define NODE_ID						"Art-Net"					///< Array of 8 characters, the final character is a null termination. Value = A r t - N e t 0x00
+
 /**
- *
+ * The maximum ports per node built into the ArtNet protocol.
  */
-enum TNodeStatus {
-	ARTNET_OFF,					///<
-	ARTNET_STANDBY,				///<
-	ARTNET_ON					///<
+enum {
+	ARTNET_MAX_PORTS = 4
+};
+
+enum {
+	ARTNET_MAX_PAGES = 8	///< Art-Net 4
+};
+
+/**
+ * The length of the short name field. Always 18
+ */
+enum {
+	ARTNET_SHORT_NAME_LENGTH = 18
+};
+
+/**
+ * The length of the long name field. Always 64
+ */
+enum {
+	ARTNET_LONG_NAME_LENGTH = 64
+};
+
+/**
+ * The length of the report field. Always 64
+ */
+enum {
+	ARTNET_REPORT_LENGTH = 64
+};
+
+/**
+ * The length of the DMX field. Always 512
+ */
+enum {
+	ARTNET_DMX_LENGTH = 512
+};
+
+/**
+ * Number of bytes in a RDM UID
+ */
+enum {
+	ARTNET_RDM_UID_WIDTH = 6
+};
+
+/**
+ * Length of the hardware address
+ */
+enum {
+	ARTNET_MAC_SIZE = 6
+};
+
+/**
+ * Length of the ESTA field
+ */
+enum {
+	ARTNET_ESTA_SIZE = 2
+};
+
+/**
+ * Length of the IP field
+ */
+enum {
+	ARTNET_IP_SIZE = 4
+};
+
+/**
+ * The Port is always 0x1936
+ */
+enum {
+	ARTNET_UDP_PORT = 0x1936
 };
 
 /**
@@ -69,65 +135,36 @@ enum TPriorityCodes {
 	ARTNET_DP_VOLATILE = 0xF0	///< Volatile message. Messages of this type are displayed on a single line in the DMX-Workshop diagnostics display. All other types are displayed in a list box.
 };
 
-
-enum TArtNetPortDataCode {
-	ARTNET_PORT_DMX = 0x00,		///< Data is DMX-512
-	ARTNET_PORT_MIDI = 0x01, 	///< Data is MIDI
-	ARTNET_PORT_AVAB = 0x02,	///< Data is Avab
-	ARTNET_PORT_CMX = 0x03,		///< Data is Colortran CMX
-	ARTNET_PORT_ADB = 0x04,		///< Data is ABD 62.5
-	ARTNET_PORT_ARTNET = 0x05	///< Data is ArtNet
-};
-
 /**
  * An enum for setting the behavior of a port.
  * Ports can either input data (DMX -> ArtNet) or
  * output (ArtNet -> DMX) data.
  */
 enum TArtNetPortSettings {
-	ARTNET_ENABLE_INPUT = 0x40, ///< Enables the input for this port
-	ARTNET_ENABLE_OUTPUT = 0x80 ///< Enables the output for this port
+	ARTNET_ENABLE_INPUT = 0x40,
+	ARTNET_ENABLE_OUTPUT = 0x80
 };
-
 
 /**
  * An enum for referring to a particular input or output port.
  */
 enum TArtNetPortDir{
-	ARTNET_INPUT_PORT = 1, 		///< The input port
-	ARTNET_OUTPUT_PORT			///< The output port
-};
-
-/**
- * Table 3 – NodeReport Codes
- * The NodeReport code defines generic error, advisory and status messages for both Nodes and Controllers.
- * The NodeReport is returned in ArtPollReply.
- */
-enum TArtNetNodeReportCode {
-	ARTNET_RCDEBUG,			///<
-	ARTNET_RCPOWEROK,		///<
-	ARTNET_RCPOWERFAIL,		///<
-	ARTNET_RCSOCKETWR1,		///<
-	ARTNET_RCPARSEFAIL,		///<
-	ARTNET_RCUDPFAIL,		///<
-	ARTNET_RCSHNAMEOK,		///<
-	ARTNET_RCLONAMEOK,		///<
-	ARTNET_RCDMXERROR,		///<
-	ARTNET_RCDMXUDPFULL,	///<
-	ARTNET_RCDMXRXFULL,		///<
-	ARTNET_RCSWITCHERR,		///<
-	ARTNET_RCCONFIGERR,		///<
-	ARTNET_RCDMXSHORT,		///<
-	ARTNET_RCFIRMWAREFAIL,	///<
-	ARTNET_RCUSERFAIL     	///<
+	ARTNET_INPUT_PORT,
+	ARTNET_OUTPUT_PORT,
+	ARTNET_DISABLE_PORT
 };
 
 /**
  * Merge is implemented in either LTP or HTP mode as specified by the ArtAddress packet.
  */
 enum TMerge {
-	ARTNET_MERGE_HTP,		///< Highest Takes Precedence (HTP)
-	ARTNET_MERGE_LTP		///< Latest Takes Precedence (LTP)
+	ARTNET_MERGE_HTP,	///< Highest Takes Precedence (HTP)
+	ARTNET_MERGE_LTP	///< Latest Takes Precedence (LTP)
+};
+
+enum TPortProtocol {
+	PORT_ARTNET_ARTNET,		///< Output both DMX512 and RDM packets from the Art-Net protocol (default).
+	PORT_ARTNET_SACN		///< Output DMX512 data from the sACN protocol and RDM data from the Art-Net protocol.
 };
 
 /**
@@ -148,10 +185,57 @@ enum TArtnetPortCommand {
 	ARTNET_PC_MERGE_HTP_1 = 0x51,	///< Set DMX Port 1 to Merge in HTP (default) mode.
 	ARTNET_PC_MERGE_HTP_2 = 0x52,	///< Set DMX Port 2 to Merge in HTP (default) mode.
 	ARTNET_PC_MERGE_HTP_3 = 0x53,	///< Set DMX Port 3 to Merge in HTP (default) mode.
+	ARTNET_PC_ARTNET_SEL0 = 0x60,	///< Set DMX Port 0 to output both DMX512 and RDM packets from the Art-Net protocol (default).
+	ARTNET_PC_ARTNET_SEL1 = 0x61,	///< Set DMX Port 1 to output both DMX512 and RDM packets from the Art-Net protocol (default).
+	ARTNET_PC_ARTNET_SEL2 = 0x62,	///< Set DMX Port 2 to output both DMX512 and RDM packets from the Art-Net protocol (default).
+	ARTNET_PC_ARTNET_SEL3 = 0x63,	///< Set DMX Port 3 to output both DMX512 and RDM packets from the Art-Net protocol (default).
+	ARTNET_PC_ACN_SEL0 = 0x70,		///< Set DMX Port 0 to output DMX512 data from the sACN protocol and RDM data from the Art-Net protocol.
+	ARTNET_PC_ACN_SEL1 = 0x71,		///< Set DMX Port 1 to output DMX512 data from the sACN protocol and RDM data from the Art-Net protocol.
+	ARTNET_PC_ACN_SEL2 = 0x72,		///< Set DMX Port 2 to output DMX512 data from the sACN protocol and RDM data from the Art-Net protocol.
+	ARTNET_PC_ACN_SEL3 = 0x73,		///< Set DMX Port 3 to output DMX512 data from the sACN protocol and RDM data from the Art-Net protocol.
 	ARTNET_PC_CLR_0 = 0x90,			///< Clear DMX Output buffer for Port 0
 	ARTNET_PC_CLR_1 = 0x91,			///< Clear DMX Output buffer for Port 1
 	ARTNET_PC_CLR_2 = 0x92,			///< Clear DMX Output buffer for Port 2
 	ARTNET_PC_CLR_3 = 0x93			///< Clear DMX Output buffer for Port 3
+};
+
+/**
+ *
+ */
+enum TTalkToMe {
+	TTM_SEND_ARTP_ON_CHANGE = (1 << 1),	///< Bit 1 set : Send ArtPollReply whenever Node conditions change.
+	TTM_SEND_DIAG_MESSAGES = (1 << 2),	///< Bit 2 set : Send me diagnostics messages.
+	TTM_SEND_DIAG_UNICAST = (1 << 3)	///< Bit 3 : 0 = Diagnostics messages are broadcast. (if bit 2).													///< Bit 3 : 1 = Diagnostics messages are unicast. (if bit 2).
+};
+
+/**
+ * ArtPollReply packet, Field 40
+ */
+enum TStatus2 {
+	STATUS2_WEB_BROWSER_SUPPORT = (1 << 0),		///< Bit 0, Set = Product supports web browser configuration
+	STATUS2_IP_MANUALY = (0 << 1),				///< Bit 1, Clr = Node’s IP is manually configured.
+	STATUS2_IP_DHCP = (1 << 1),					///< Bit 1, Set = Node’s IP is DHCP configured.
+	STATUS2_DHCP_NOT_CAPABLE = (0 << 2),		///< Bit 2, Clr = Node is not DHCP capable.
+	STATUS2_DHCP_CAPABLE = (1 << 2),			///< Bit 2, Set = Node is DHCP capable.
+	STATUS2_PORT_ADDRESS_8BIT = (0 << 3),		///< Bit 3, Clr = Node supports 8 bit Port-Address (Art-Net II).
+	STATUS2_PORT_ADDRESS_15BIT = (1 << 3),		///< Bit 3, Set = Node supports 15 bit Port-Address (Art-Net 3 or 4).
+	STATUS2_SACN_NO_SWITCH = (0 << 4),			///< Bit 4, Clr = Node not able to switch between Art-Net and sACN.
+	STATUS2_SACN_ABLE_TO_SWITCH = (1 << 4)		///< Bit 4, Set = Node is able to switch between Art-Net and sACN.
+};
+
+enum TGoodOutput {
+	GO_DATA_IS_BEING_TRANSMITTED = (1 << 7),	///< Bit 7 Set – Data is being transmitted.
+	GO_INCLUDES_DMX_TEST_PACKETS = (1 << 6),	///< Bit 6 Set – Channel includes DMX512 test packets.
+	GO_INCLUDES_DMX_SIP = (1 << 5),				///< Bit 5 Set – Channel includes DMX512 SIP’s.
+	GO_INCLUDES_DMX_TEXT_PACKETS = (1 << 4),	///< Bit 4 Channel includes DMX512 text packets.
+	GO_OUTPUT_IS_MERGING = (1 << 3),			///< Bit 3 Set – Output is merging ArtNet data.
+	GO_DMX_SHORT_DETECTED = (1 << 2),			///< Bit 2 Set – DMX output short detected on power up
+	GO_MERGE_MODE_LTP = (1 << 1),				///< Bit 1 Set – Merge Mode is LTP.
+	GO_OUTPUT_IS_SACN  = (1 << 0)				///< Bit 0 Set – Output is selected to transmit sACN.
+};
+
+enum TGoodInput {
+	GI_DATA_RECIEVED  = (1 << 7)				///< Bit 7 Set – Data received.
 };
 
 #endif /* ARTNET_H_ */

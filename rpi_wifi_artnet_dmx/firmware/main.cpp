@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,221 +25,327 @@
 
 #include <stdio.h>
 #include <stdint.h>
-
-#include "bcm2835_gpio.h"
+#include <assert.h>
 
 #include "hardware.h"
-#include "led.h"
-#include "monitor.h"
+#include "networkesp8266.h"
+#include "ledblink.h"
+
 #include "console.h"
+#include "display.h"
+
+#include "wifi.h"
 
 #include "artnetnode.h"
 #include "artnetparams.h"
 
-#include "dmxsend.h"
-#include "dmxparams.h"
-
-#include "dmxmonitor.h"
-
-#include "spisend.h"
-#include "deviceparams.h"
-
 #include "timecode.h"
+#include "timesync.h"
 
-#include "oled.h"
+// DMX output / RDM
+#include "dmxparams.h"
+#include "dmxsend.h"
+#include "rdmdeviceparams.h"
+#if defined(ORANGE_PI)
+ #include "storedmxsend.h"
+ #include "storerdmdevice.h"
+#endif
+#include "artnetdiscovery.h"
+#ifndef H3
+ // Monitor Output
+ #include "dmxmonitor.h"
+#endif
+// Pixel Controller
+#include "lightset.h"
+#include "ws28xxdmxparams.h"
+#include "ws28xxdmx.h"
+#include "ws28xxdmxgrouping.h"
+#include "ws28xx.h"
+#if defined(ORANGE_PI)
+ #include "storews28xxdmx.h"
+#endif
 
-#include "wifi.h"
-#include "wifi_udp.h"
+#if defined(ORANGE_PI)
+ #include "spiflashinstall.h"
+ #include "spiflashstore.h"
+#endif
+
 #include "software_version.h"
+
+static const char NETWORK_INIT[] = "Network init ...";
+static const char NODE_PARMAS[] = "Setting Node parameters ...";
+static const char RUN_RDM[] = "Running RDM Discovery ...";
+static const char START_NODE[] = "Starting the Node ...";
+static const char NODE_STARTED[] = "Node started";
 
 extern "C" {
 
 void notmain(void) {
-	_output_type output_type = OUTPUT_TYPE_DMX;
-	uint32_t period = (uint32_t) 0;
-	struct ip_info ip_config;
-	ArtNetParams artnetparams;
-	DMXParams dmxparams;
-	DeviceParams deviceparms;
-	oled_info_t oled_info = { OLED_128x64_I2C_DEFAULT };
-	bool oled_connected = false;
+	Hardware hw;
+	NetworkESP8266 nw;
+	LedBlink lb;
+	Display display(DISPLAY_SSD1306);
 
-	bcm2835_gpio_fsel(RPI_V2_GPIO_P1_22, BCM2835_GPIO_FSEL_OUTP);
-	bcm2835_gpio_clr(RPI_V2_GPIO_P1_22);
-
-	hardware_init();
-
-	oled_connected = oled_start(&oled_info);
-
-	(void) artnetparams.Load();
-
-	output_type = artnetparams.GetOutputType();
-
-	if (output_type == OUTPUT_TYPE_SPI) {
-		(void) deviceparms.Load();
-	} else if (output_type != OUTPUT_TYPE_MONITOR){
-		output_type = OUTPUT_TYPE_DMX;
-		(void) dmxparams.Load();
+#if defined (ORANGE_PI)
+	if (hw.GetBootDevice() == BOOT_DEVICE_MMC0) {
+		SpiFlashInstall spiFlashInstall;
 	}
 
-	printf("[V%s] %s Compiled on %s at %s\n", SOFTWARE_VERSION, hardware_board_get_model(), __DATE__, __TIME__);
-	printf("WiFi ArtNet 3 Node DMX Output / Pixel controller {4 DMX Universes}");
+	SpiFlashStore spiFlashStore;
+	StoreDmxSend storeDmxSend;
+	StoreWS28xxDmx storeWS28xxDmx;
+	StoreRDMDevice storeRdmDevice;
 
-	OLED_CONNECTED(oled_connected, oled_puts(&oled_info, "WiFi ArtNet 3"));
+	ArtNetParams artnetparams((ArtNetParamsStore *)spiFlashStore.GetStoreArtNet());
+#else
+	ArtNetParams artnetparams;
+#endif
+
+	if (artnetparams.Load()) {
+		artnetparams.Dump();
+	}
+
+	const TLightSetOutputType tOutputType = artnetparams.GetOutputType();
+
+	uint8_t nHwTextLength;
+	printf("[V%s] %s Compiled on %s at %s\n", SOFTWARE_VERSION, hw.GetBoardName(nHwTextLength), __DATE__, __TIME__);
+
+	console_puts("WiFi Art-Net 3 Node ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_DMX ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("DMX Output");
+	console_set_fg_color(CONSOLE_WHITE);
+	console_puts(" / ");
+	console_set_fg_color((artnetparams.IsRdm() && (tOutputType == LIGHTSET_OUTPUT_TYPE_DMX)) ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("RDM");
+	console_set_fg_color(CONSOLE_WHITE);
+#ifndef H3
+	console_puts(" / ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("Monitor");
+	console_set_fg_color(CONSOLE_WHITE);
+#endif
+	console_puts(" / ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_SPI ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("Pixel controller {4 Universes}");
+	console_set_fg_color(CONSOLE_WHITE);
+#ifdef H3
+	console_putc('\n');
+#endif
 
 	console_set_top_row(3);
 
-	if (!wifi(&ip_config)) {
-		for (;;)
-			;
-	}
+	hw.SetLed(HARDWARE_LED_ON);
 
-	console_status(CONSOLE_YELLOW, "Starting UDP ...");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Starting UDP ..."));
+	console_status(CONSOLE_YELLOW, NETWORK_INIT);
+	display.TextStatus(NETWORK_INIT);
 
-	wifi_udp_begin(6454);
-
-	console_status(CONSOLE_YELLOW, "UDP started");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "UDP started"));
+#if defined (ORANGE_PI)
+	nw.Init();
+#else
+	nw.Init();
+#endif
 
 	ArtNetNode node;
-	DMXSend dmx;
-	SPISend spi;
+
+#ifndef H3
 	DMXMonitor monitor;
+#endif
 	TimeCode timecode;
+	TimeSync timesync;
+	ArtNetRdmController discovery;
 
-	console_status(CONSOLE_YELLOW, "Setting Node parameters ...");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Setting Node parameters ..."));
+	console_status(CONSOLE_YELLOW, NODE_PARMAS);
+	display.TextStatus(NODE_PARMAS);
 
-	if (artnetparams.IsUseTimeCode()) {
+	artnetparams.Set(&node);
+
+	if (artnetparams.IsUseTimeCode() || tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
 		timecode.Start();
 		node.SetTimeCodeHandler(&timecode);
 	}
 
-	node.SetUniverseSwitch(0, ARTNET_OUTPUT_PORT, artnetparams.GetUniverse());
+	if (artnetparams.IsUseTimeSync() || tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+		timesync.Start();
+		node.SetTimeSyncHandler(&timesync);
+	}
 
-	if (output_type == OUTPUT_TYPE_DMX) {
-		node.SetOutput(&dmx);
-		node.SetDirectUpdate(false);
+	const uint8_t nUniverse = artnetparams.GetUniverse();
 
-		dmx.SetBreakTime(dmxparams.GetBreakTime());
-		dmx.SetMabTime(dmxparams.GetMabTime());
+	node.SetUniverseSwitch(0, ARTNET_OUTPUT_PORT, nUniverse);
+	node.SetDirectUpdate(false);
 
-		const uint8_t refresh_rate = dmxparams.GetRefreshRate();
+	DMXSend dmx;
+	LightSet *pSpi;
 
-		if (refresh_rate != (uint8_t) 0) {
-			period = (uint32_t) (1E6 / refresh_rate);
+	if (tOutputType == LIGHTSET_OUTPUT_TYPE_SPI) {
+#if defined (ORANGE_PI)
+		WS28xxDmxParams ws28xxparms((WS28xxDmxParamsStore *) StoreWS28xxDmx::Get());
+#else
+		WS28xxDmxParams ws28xxparms;
+#endif
+		if (ws28xxparms.Load()) {
+			ws28xxparms.Dump();
 		}
 
-		dmx.SetPeriodTime(period);
+		display.Printf(7, "%s:%d %c", WS28xx::GetLedTypeString(ws28xxparms.GetLedType()), ws28xxparms.GetLedCount(), ws28xxparms.IsLedGrouping() ? 'G' : ' ');
 
-	} else if (output_type == OUTPUT_TYPE_SPI) {
-		spi.SetLEDCount(deviceparms.GetLedCount());
-		spi.SetLEDType(deviceparms.GetLedType());
+		if (ws28xxparms.IsLedGrouping()) {
+			WS28xxDmxGrouping *pWS28xxDmxGrouping = new WS28xxDmxGrouping;
+			assert(pWS28xxDmxGrouping != 0);
+			ws28xxparms.Set(pWS28xxDmxGrouping);
+			pSpi = pWS28xxDmxGrouping;
+		} else  {
+			WS28xxDmx *pWS28xxDmx = new WS28xxDmx;
+			assert(pWS28xxDmx != 0);
+			ws28xxparms.Set(pWS28xxDmx);
+			pSpi = pWS28xxDmx;
 
-		node.SetOutput(&spi);
-		node.SetDirectUpdate(true);
+			const uint16_t nLedCount = pWS28xxDmx->GetLEDCount();
 
-		const uint16_t led_count = spi.GetLEDCount();
-		const uint8_t universe = artnetparams.GetUniverse();
-
-		if (led_count > 170) {
-			node.SetDirectUpdate(true);
-			node.SetUniverseSwitch(1, ARTNET_OUTPUT_PORT, universe + 1);
+			if (pWS28xxDmx->GetLEDType() == SK6812W) {
+				if (nLedCount > 128) {
+					node.SetDirectUpdate(true);
+					node.SetUniverseSwitch(1, ARTNET_OUTPUT_PORT, nUniverse + 1);
+				}
+				if (nLedCount > 256) {
+					node.SetUniverseSwitch(2, ARTNET_OUTPUT_PORT, nUniverse + 2);
+				}
+				if (nLedCount > 384) {
+					node.SetUniverseSwitch(3, ARTNET_OUTPUT_PORT, nUniverse + 3);
+				}
+			} else {
+				if (nLedCount > 170) {
+					node.SetDirectUpdate(true);
+					node.SetUniverseSwitch(1, ARTNET_OUTPUT_PORT, nUniverse + 1);
+				}
+				if (nLedCount > 340) {
+					node.SetUniverseSwitch(2, ARTNET_OUTPUT_PORT, nUniverse + 2);
+				}
+				if (nLedCount > 510) {
+					node.SetUniverseSwitch(3, ARTNET_OUTPUT_PORT, nUniverse + 3);
+				}
+			}
 		}
-
-		if (led_count > 340) {
-			node.SetDirectUpdate(true);
-			node.SetUniverseSwitch(2, ARTNET_OUTPUT_PORT, universe + 2);
-		}
-
-		if (led_count > 510) {
-			node.SetDirectUpdate(true);
-			node.SetUniverseSwitch(3, ARTNET_OUTPUT_PORT, universe + 3);
-		}
-	} else if (output_type == OUTPUT_TYPE_MONITOR) {
+		node.SetOutput(pSpi);
+	}
+#ifndef H3
+	else if (tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+		// There is support for HEX output only
 		node.SetOutput(&monitor);
+		monitor.Cls();
 		console_set_top_row(20);
 	}
-
-	node.SetSubnetSwitch(artnetparams.GetSubnet());
-	node.SetNetSwitch(artnetparams.GetNet());
-
-	printf("\nNode configuration\n");
-	const uint8_t *firmware_version = node.GetSoftwareVersion();
-	printf(" Firmware     : %d.%d\n", firmware_version[0], firmware_version[1]);
-	printf(" Short name   : %s\n", node.GetShortName());
-	printf(" Long name    : %s\n", node.GetLongName());
-	printf(" Net          : %d\n", node.GetNetSwitch());
-	printf(" Sub-Net      : %d\n", node.GetSubnetSwitch());
-	printf(" Universe     : %d\n", node.GetUniverseSwitch(0));
-	printf(" Active ports : %d", node.GetActiveOutputPorts());
-
-	if (output_type != OUTPUT_TYPE_MONITOR) {
-		console_puts("\n\n");
-	}
-
-	if (output_type == OUTPUT_TYPE_DMX) {
-		printf("DMX Send parameters\n");
-		printf(" Break time   : %d\n", (int) dmx.GetBreakTime());
-		printf(" MAB time     : %d\n", (int) dmx.GetMabTime());
-		printf(" Refresh rate : %d\n", (int) (1E6 / dmx.GetPeriodTime()));
-	} else if (output_type == OUTPUT_TYPE_SPI) {
-		printf("Led stripe parameters\n");
-		printf(" Type         : %s\n", deviceparms.GetLedTypeString());
-		printf(" Count        : %d\n", (int) spi.GetLEDCount());
-	}
-
-	if (oled_connected) {
-		oled_set_cursor(&oled_info, 0, 14);
-
-		switch (output_type) {
-		case OUTPUT_TYPE_DMX:
-			oled_puts(&oled_info, "DMX Out");
-			break;
-		case OUTPUT_TYPE_SPI:
-			oled_puts(&oled_info, "Pixel");
-			break;
-		case OUTPUT_TYPE_MONITOR:
-			oled_puts(&oled_info, "Monitor");
-			break;
-		default:
-			break;
+#endif
+	else {
+#if defined (ORANGE_PI)
+		DMXParams dmxparams((DMXParamsStore *)&storeDmxSend);
+#else
+		DMXParams dmxparams;
+#endif
+		if (dmxparams.Load()) {
+			dmxparams.Dump();
+			dmxparams.Set(&dmx);
 		}
 
-		oled_set_cursor(&oled_info, 1, 0);
-		if (wifi_get_opmode() == WIFI_STA) {
-			(void) oled_printf(&oled_info, "S: %s", wifi_get_ssid());
+		node.SetOutput(&dmx);
+
+		if (artnetparams.IsRdm()) {
+#if defined (ORANGE_PI)
+			RDMDeviceParams rdmDeviceParams((RDMDeviceParamsStore *)&storeRdmDevice);
+#else
+			RDMDeviceParams rdmDeviceParams;
+#endif
+			if(rdmDeviceParams.Load()) {
+				rdmDeviceParams.Set((RDMDevice *)&discovery);
+				rdmDeviceParams.Dump();
+			}
+
+			discovery.Init();
+			discovery.Print();
+
+			if (artnetparams.IsRdmDiscovery()) {
+				console_status(CONSOLE_YELLOW, RUN_RDM);
+				display.TextStatus(RUN_RDM);
+				discovery.Full();
+			}
+
+			node.SetRdmHandler((ArtNetRdm *)&discovery);
+		}
+	}
+
+	node.Print();
+
+	if (tOutputType == LIGHTSET_OUTPUT_TYPE_SPI) {
+		assert(pSpi != 0);
+		pSpi->Print();
+	} else if (tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+		// Nothing
+	} else {
+		dmx.Print();
+	}
+
+	for (unsigned i = 0; i < 7; i++) {
+		display.ClearLine(i);
+	}
+
+	display.Write(1, "WiFi Art-Net 3 ");
+
+	switch (tOutputType) {
+	case LIGHTSET_OUTPUT_TYPE_SPI:
+		display.PutString("Pixel");
+		break;
+	case LIGHTSET_OUTPUT_TYPE_MONITOR:
+		display.PutString("Monitor");
+		break;
+	default:
+		if (artnetparams.IsRdm()) {
+			display.PutString("RDM");
 		} else {
-			(void) oled_printf(&oled_info, "AP (%s)\n", wifi_ap_is_open() ? "Open" : "WPA_WPA2_PSK");
+			display.PutString("DMX");
 		}
-
-		oled_set_cursor(&oled_info, 2, 0);
-		(void) oled_printf(&oled_info, "IP: " IPSTR "", IP2STR(ip_config.ip.addr));
-		oled_set_cursor(&oled_info, 3, 0);
-		(void) oled_printf(&oled_info, "N: " IPSTR "", IP2STR(ip_config.netmask.addr));
-		oled_set_cursor(&oled_info, 4, 0);
-		(void) oled_printf(&oled_info, "SN: %s", node.GetShortName());
-		oled_set_cursor(&oled_info, 5, 0);
-		(void) oled_printf(&oled_info, "N: %d SubN: %d U: %d", node.GetNetSwitch(),node.GetSubnetSwitch(), node.GetUniverseSwitch(0));
-		oled_set_cursor(&oled_info, 6, 0);
-		(void) oled_printf(&oled_info, "Active ports: %d", node.GetActiveOutputPorts());
+		break;
 	}
 
-	hardware_watchdog_init();
+	if (wifi_get_opmode() == WIFI_STA) {
+		display.Printf(2, "S: %s", wifi_get_ssid());
+	} else {
+		display.Printf(2, "AP (%s)\n", wifi_ap_is_open() ? "Open" : "WPA_WPA2_PSK");
+	}
 
-	console_status(CONSOLE_YELLOW, "Starting the Node ...");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Starting the Node ..."));
+	display.Printf(3, "IP: " IPSTR "", IP2STR(Network::Get()->GetIp()));
+
+	if (nw.IsDhcpKnown()) {
+		if (nw.IsDhcpUsed()) {
+			display.PutString(" D");
+		} else {
+			display.PutString(" S");
+		}
+	}
+
+	display.Printf(4, "N: " IPSTR "", IP2STR(Network::Get()->GetNetmask()));
+	display.Printf(5, "U: %d", nUniverse);
+	display.Printf(6, "Active ports: %d", node.GetActiveOutputPorts());
+
+	console_status(CONSOLE_YELLOW, START_NODE);
+	display.TextStatus(START_NODE);
 
 	node.Start();
 
-	console_status(CONSOLE_GREEN, "Node started");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Node started"));
+	console_status(CONSOLE_GREEN, NODE_STARTED);
+	display.TextStatus(NODE_STARTED);
+
+	hw.WatchdogFeed();
 
 	for (;;) {
-		hardware_watchdog_feed();
-		(void)node.HandlePacket();
-		led_blink();
+		hw.WatchdogFeed();
+		node.Run();
+		if (tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+			timesync.ShowSystemTime();
+		}
+		lb.Run();
+#if defined (ORANGE_PI)
+		spiFlashStore.Flash();
+#endif
 	}
 }
 

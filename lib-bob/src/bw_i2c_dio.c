@@ -2,7 +2,7 @@
  * @file bw_i2c_dio.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,38 +25,22 @@
 
 #include <stdint.h>
 
-#include "bcm2835.h"
-#include "bcm2835_i2c.h"
-
-#include "i2c.h"
+#include "bob.h"
 
 #include "bw.h"
 #include "bw_dio.h"
 
-#include "device_info.h"
-
 #define BW_DIO_I2C_BYTE_WAIT_US		0
 
-/**
- * @ingroup I2C-DIO
- *
- * @param device_info
- */
 inline static void dio_i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address >> 1);
-	bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+	i2c_set_address(device_info->slave_address >> 1);
+	i2c_set_baudrate(I2C_NORMAL_SPEED);
 }
 
-/**
- * @ingroup I2C-DIO
- *
- * @param device_info
- * @return
- */
-const bool bw_i2c_dio_start(device_info_t *device_info) {
-	bcm2835_i2c_begin();
+bool bw_i2c_dio_start(device_info_t *device_info) {
+	i2c_begin();
 
-	if (device_info->slave_address == (uint8_t) 0) {
+	if (device_info->slave_address == 0) {
 		device_info->slave_address = BW_DIO_DEFAULT_SLAVE_ADDRESS;
 	}
 
@@ -69,34 +53,22 @@ const bool bw_i2c_dio_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- * @ingroup I2C-DIO
- *
- * @param device_info
- * @param mask
- */
-void bw_i2c_dio_fsel_mask(const device_info_t *device_info, const uint8_t mask) {
+void bw_i2c_dio_fsel_mask(const device_info_t *device_info, uint8_t mask) {
 	char cmd[2];
 
 	cmd[0] = (char) BW_PORT_WRITE_IO_DIRECTION;
 	cmd[1] = (char) mask;
 
 	dio_i2c_setup(device_info);
-	(void) bcm2835_i2c_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
+	i2c_write_nb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 }
 
-/**
- * @ingroup I2C-DIO
- *
- * @param device_info
- * @param pins
- */
-void bw_i2c_dio_output(const device_info_t *device_info, const uint8_t pins) {
+void bw_i2c_dio_output(const device_info_t *device_info, uint8_t pins) {
 	char cmd[2];
 
 	cmd[0] = (char) BW_PORT_WRITE_SET_ALL_OUTPUTS;
 	cmd[1] = (char) pins;
 
 	dio_i2c_setup(device_info);
-	(void) bcm2835_i2c_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
+	i2c_write_nb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 }

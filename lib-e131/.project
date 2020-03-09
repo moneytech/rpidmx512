@@ -3,9 +3,7 @@
 	<name>lib-e131</name>
 	<comment></comment>
 	<projects>
-		<project>lib-esp8266</project>
-		<project>lib-lightset</project>
-		<project>lib-uuid</project>
+		<project>include</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

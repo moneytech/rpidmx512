@@ -1,4 +1,8 @@
 #
-EXTRA_INCLUDES = ../lib-ff11/src ../lib-fb/include
+DEFINES = NDEBUG
+#
+EXTRA_INCLUDES =
+#
+EXTRA_SRCDIR = src/builtins
 #
 include ../firmware-template/lib/Rules.mk

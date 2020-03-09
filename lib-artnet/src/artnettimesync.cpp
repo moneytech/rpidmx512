@@ -4,11 +4,8 @@
  */
 /**
  * Art-Net Designed by and Copyright Artistic Licence Holdings Ltd.
- *
- * Art-Net 3 Protocol Release V1.4 Document Revision 1.4bk 23/1/2016
- *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,8 +26,31 @@
  * THE SOFTWARE.
  */
 
+#include <assert.h>
+
 #include "artnettimesync.h"
 
-ArtNetTimeSync::~ArtNetTimeSync(void) {
+#include "artnetnode.h"
+#include "network.h"
 
+#include "debug.h"
+
+ArtNetTimeSync::~ArtNetTimeSync(void) {
+	DEBUG_ENTRY
+
+	DEBUG_EXIT
+}
+
+void ArtNetNode::HandleTimeSync(void) {
+	DEBUG_ENTRY
+
+	struct TArtTimeSync *packet = (struct TArtTimeSync *) &(m_ArtNetPacket.ArtPacket.ArtTimeSync);
+
+	m_pArtNetTimeSync->Handler((struct TArtNetTimeSync *)&packet->tm_sec);
+
+	packet->Prog = 0;
+
+	Network::Get()->SendTo(m_nHandle, (const uint8_t *) packet, (const uint16_t) sizeof(struct TArtTimeSync), m_ArtNetPacket.IPAddressFrom, (uint16_t) ARTNET_UDP_PORT);
+
+	DEBUG_EXIT
 }

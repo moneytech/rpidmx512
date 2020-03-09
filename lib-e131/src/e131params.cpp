@@ -2,7 +2,7 @@
  * @file e131params.cpp
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,131 +24,237 @@
  */
 
 #include <stdint.h>
+#include <string.h>
+#ifndef NDEBUG
+ #include <stdio.h>
+#endif
+#include <assert.h>
 
-#include "read_config_file.h"
-#include "sscan.h"
-#include "util.h"
-
-#include "uuid.h"
-
-#include "e131.h"
 #include "e131params.h"
+#include "e131paramsconst.h"
+#include "e131.h"
 
-static const char PARAMS_FILE_NAME[] ALIGNED = "e131.txt";			///< Parameters file name
-static const char PARAMS_UNIVERSE[] ALIGNED = "universe";			///<
-static const char PARAMS_MERGE_MODE[] ALIGNED = "merge_mode";		///<
-static const char PARAMS_OUTPUT[] ALIGNED = "output";				///<
-static const char PARAMS_CID[] ALIGNED = "cid";						///<
+#include "readconfigfile.h"
+#include "sscan.h"
 
-static uint16_t E131ParamsUniverse ALIGNED = E131_UNIVERSE_DEFAULT;	///<
-static _output_type E131ParamsOutputType ALIGNED = OUTPUT_TYPE_DMX;	///<
-static TMerge E131ParamsMergeMode = E131_MERGE_HTP;					///<
-static char E131ParamsCidString[UUID_STRING_LENGTH + 1] ALIGNED;
-static bool E131HaveCustomCid = false;
+#include "lightsetconst.h"
 
-/**
- *
- * @param line
- */
-static void process_line_read(const char *line) {
-	char value[UUID_STRING_LENGTH + 2] ALIGNED;
-	uint8_t len;
+#include "debug.h"
 
-	uint16_t value16;
+#define BOOL2STRING(b)			(b) ? "Yes" : "No"
+#define MERGEMODE2STRING(m)		(m == E131_MERGE_HTP) ? "HTP" : "LTP"
 
-	if (sscan_uint16_t(line, PARAMS_UNIVERSE, &value16) == 2) {
-		if (value16 == 0 || value16 > E131_UNIVERSE_MAX) {
-			E131ParamsUniverse = E131_UNIVERSE_DEFAULT;
-		} else {
-			E131ParamsUniverse = value16;
-		}
-		return;
+E131Params::E131Params(E131ParamsStore *pE131ParamsStore):m_pE131ParamsStore(pE131ParamsStore) {
+	uint8_t *p = (uint8_t *) &m_tE131Params;
+
+	for (uint32_t i = 0; i < sizeof(struct TE131Params); i++) {
+		*p++ = 0;
 	}
 
-	len = 3;
-	if (sscan_char_p(line, PARAMS_OUTPUT, value, &len) == 2) {
-		if(memcmp(value, "mon", 3) == 0) {
-			E131ParamsOutputType = OUTPUT_TYPE_MONITOR;
-		}
-		return;
-	}
-
-	len = 3;
-	if (sscan_char_p(line, PARAMS_MERGE_MODE, value, &len) == 2) {
-		if(memcmp(value, "ltp", 3) == 0) {
-			E131ParamsMergeMode = E131_MERGE_LTP;
-		}
-		return;
-	}
-
-	len = UUID_STRING_LENGTH;
-	if (sscan_uuid(line, PARAMS_CID, value, &len) == 2) {
-		memcpy(E131ParamsCidString, value, UUID_STRING_LENGTH);
-		E131ParamsCidString[UUID_STRING_LENGTH] = '\0';
-		E131HaveCustomCid = true;
-	}
-
+	m_tE131Params.nUniverse = E131_UNIVERSE_DEFAULT;
+	m_tE131Params.nNetworkTimeout = E131_NETWORK_DATA_LOSS_TIMEOUT_SECONDS;
+	m_tE131Params.nDirection = (uint8_t) E131_OUTPUT_PORT;
+	m_tE131Params.nPriority = E131_PRIORITY_DEFAULT;
 }
 
-/**
- *
- */
-E131Params::E131Params(void) {
-	E131ParamsUniverse = E131_UNIVERSE_DEFAULT;
-	E131ParamsOutputType = OUTPUT_TYPE_DMX;
-	memset(E131ParamsCidString, 0, UUID_STRING_LENGTH);
-}
-
-/**
- *
- */
 E131Params::~E131Params(void) {
+	m_tE131Params.nSetList = 0;
 }
 
-/**
- *
- * @return
- */
 bool E131Params::Load(void) {
-	return read_config_file(PARAMS_FILE_NAME, &process_line_read);
+	m_tE131Params.nSetList = 0;
+
+	ReadConfigFile configfile(E131Params::staticCallbackFunction, this);
+
+	if (configfile.Read(E131ParamsConst::FILE_NAME)) {
+		// There is a configuration file
+		if (m_pE131ParamsStore != 0) {
+			m_pE131ParamsStore->Update(&m_tE131Params);
+		}
+	} else if (m_pE131ParamsStore != 0) {
+		m_pE131ParamsStore->Copy(&m_tE131Params);
+	} else {
+		return false;
+	}
+
+	return true;
 }
 
-/**
- *
- * @return range 1 to 63999
- */
-const uint16_t E131Params::GetUniverse(void) {
-	return E131ParamsUniverse;
+void E131Params::Load(const char* pBuffer, uint32_t nLength) {
+	assert(pBuffer != 0);
+	assert(nLength != 0);
+
+	assert(m_pE131ParamsStore != 0);
+
+	if (m_pE131ParamsStore == 0) {
+		return;
+	}
+
+	m_tE131Params.nSetList = 0;
+
+	ReadConfigFile config(E131Params::staticCallbackFunction, this);
+
+	config.Read(pBuffer, nLength);
+
+	m_pE131ParamsStore->Update(&m_tE131Params);
 }
 
-/**
- *
- * @return \ref _output_type
- */
-const _output_type E131Params::GetOutputType(void) {
-	return E131ParamsOutputType;
+void E131Params::callbackFunction(const char *pLine) {
+	assert(pLine != 0);
+
+	char value[16];
+	uint8_t len;
+	uint8_t value8;
+	uint16_t value16;
+	float fValue;
+
+	if (Sscan::Uint16(pLine, LightSetConst::PARAMS_UNIVERSE, &value16) == SSCAN_OK) {
+		if ((value16 == 0) || (value16 > E131_UNIVERSE_MAX)) {
+			m_tE131Params.nUniverse = E131_UNIVERSE_DEFAULT;
+		} else {
+			m_tE131Params.nUniverse = value16;
+		}
+		m_tE131Params.nSetList |= E131_PARAMS_MASK_UNIVERSE;
+		return;
+	}
+
+	len = 3;
+	if (Sscan::Char(pLine, E131ParamsConst::MERGE_MODE, value, &len) == SSCAN_OK) {
+		if (memcmp(value, "ltp", 3) == 0) {
+			m_tE131Params.nMergeMode = E131_MERGE_LTP;
+			m_tE131Params.nSetList |= E131_PARAMS_MASK_MERGE_MODE;
+		} else if (memcmp(value, "htp", 3) == 0) {
+			m_tE131Params.nMergeMode = E131_MERGE_HTP;
+			m_tE131Params.nSetList |= E131_PARAMS_MASK_MERGE_MODE;
+		}
+		return;
+	}
+
+	for (uint32_t i = 0; i < E131_PARAMS_MAX_PORTS; i++) {
+		if (Sscan::Uint16(pLine, E131ParamsConst::UNIVERSE_PORT[i], &value16) == SSCAN_OK) {
+			m_tE131Params.nUniversePort[i] = value16;
+			m_tE131Params.nSetList |= (E131_PARAMS_MASK_UNIVERSE_A << i);
+			return;
+		}
+
+		len = 3;
+		if (Sscan::Char(pLine, E131ParamsConst::MERGE_MODE_PORT[i], value, &len) == SSCAN_OK) {
+			if (memcmp(value, "ltp", 3) == 0) {
+				m_tE131Params.nMergeModePort[i] = E131_MERGE_LTP;
+				m_tE131Params.nSetList |= (E131_PARAMS_MASK_MERGE_MODE_A << i);
+			} else if (memcmp(value, "htp", 3) == 0) {
+				m_tE131Params.nMergeModePort[i] = E131_MERGE_HTP;
+				m_tE131Params.nSetList |= (E131_PARAMS_MASK_MERGE_MODE_A << i);
+			}
+			return;
+		}
+	}
+
+	if (Sscan::Float(pLine, E131ParamsConst::NETWORK_DATA_LOSS_TIMEOUT, &fValue) == SSCAN_OK) {
+		m_tE131Params.nNetworkTimeout = fValue;
+		m_tE131Params.nSetList |= E131_PARAMS_MASK_NETWORK_TIMEOUT;
+		return;
+	}
+
+	if (Sscan::Uint8(pLine, E131ParamsConst::DISABLE_MERGE_TIMEOUT, &value8) == SSCAN_OK) {
+		m_tE131Params.bDisableMergeTimeout = (value8 != 0);
+		m_tE131Params.nSetList |= E131_PARAMS_MASK_MERGE_TIMEOUT;
+		return;
+	}
+
+	if (Sscan::Uint8(pLine, LightSetConst::PARAMS_ENABLE_NO_CHANGE_UPDATE, &value8) == SSCAN_OK) {
+		m_tE131Params.bEnableNoChangeUpdate = (value8 != 0);
+		m_tE131Params.nSetList |= E131_PARAMS_MASK_ENABLE_NO_CHANGE_OUTPUT;
+		return;
+	}
+
+	len = 5;
+	if (Sscan::Char(pLine, E131ParamsConst::DIRECTION, value, &len) == SSCAN_OK) {
+		if (memcmp(value, "input", 5) == 0) {
+			m_tE131Params.nDirection = (uint8_t) E131_INPUT_PORT;
+			m_tE131Params.nSetList |= E131_PARAMS_MASK_DIRECTION;
+		}
+		return;
+	}
+
+	len = 6;
+	if (Sscan::Char(pLine, E131ParamsConst::DIRECTION, value, &len) == SSCAN_OK) {
+		if (memcmp(value, "output", 6) == 0) {
+			m_tE131Params.nDirection = (uint8_t) E131_OUTPUT_PORT;
+			m_tE131Params.nSetList |= E131_PARAMS_MASK_DIRECTION;
+		}
+		return;
+	}
+
+	if (Sscan::Uint8(pLine, E131ParamsConst::PRIORITY, &value8) == SSCAN_OK) {
+		if ((value8 >= E131_PRIORITY_LOWEST) && (value8 <= E131_PRIORITY_HIGHEST)) {
+			m_tE131Params.nPriority = value8;
+			m_tE131Params.nSetList |= E131_PARAMS_MASK_PRIORITY;
+		}
+		return;
+	}
+
 }
 
-/**
- *
- * @return
- */
-const TMerge E131Params::GetMergeMode(void) {
-	return E131ParamsMergeMode;
+void E131Params::Dump(void) {
+#ifndef NDEBUG
+	printf("%s::%s \'%s\':\n", __FILE__, __FUNCTION__, E131ParamsConst::FILE_NAME);
+
+	if (isMaskSet(E131_PARAMS_MASK_UNIVERSE)) {
+		printf(" %s=%d\n", LightSetConst::PARAMS_UNIVERSE, (int) m_tE131Params.nUniverse);
+	}
+
+	for (unsigned i = 0; i < E131_PARAMS_MAX_PORTS; i++) {
+		if (isMaskSet(E131_PARAMS_MASK_UNIVERSE_A << i)) {
+			printf(" %s=%d\n", E131ParamsConst::UNIVERSE_PORT[i], m_tE131Params.nUniversePort[i]);
+		}
+	}
+
+	if (isMaskSet(E131_PARAMS_MASK_MERGE_MODE)) {
+		printf(" %s=%s\n", E131ParamsConst::MERGE_MODE, MERGEMODE2STRING(m_tE131Params.nMergeMode));
+	}
+
+	for (unsigned i = 0; i < E131_PARAMS_MAX_PORTS; i++) {
+		if (isMaskSet(E131_PARAMS_MASK_MERGE_MODE_A << i)) {
+			printf(" %s=%s\n", E131ParamsConst::MERGE_MODE_PORT[i], MERGEMODE2STRING(m_tE131Params.nMergeModePort[i]));
+		}
+	}
+
+	if (isMaskSet(E131_PARAMS_MASK_NETWORK_TIMEOUT)) {
+		printf(" %s=%.1f [%s]\n", E131ParamsConst::NETWORK_DATA_LOSS_TIMEOUT, m_tE131Params.nNetworkTimeout, (m_tE131Params.nNetworkTimeout == 0) ? "Disabled" : "");
+	}
+
+	if(isMaskSet(E131_PARAMS_MASK_MERGE_TIMEOUT)) {
+		printf(" %s=%d [%s]\n", E131ParamsConst::DISABLE_MERGE_TIMEOUT, (int) m_tE131Params.bDisableMergeTimeout, BOOL2STRING(m_tE131Params.bDisableMergeTimeout));
+	}
+
+	if(isMaskSet(E131_PARAMS_MASK_ENABLE_NO_CHANGE_OUTPUT)) {
+		printf(" %s=%d [%s]\n", LightSetConst::PARAMS_ENABLE_NO_CHANGE_UPDATE, (int) m_tE131Params.bEnableNoChangeUpdate, BOOL2STRING(m_tE131Params.bEnableNoChangeUpdate));
+	}
+
+	if(isMaskSet(E131_PARAMS_MASK_DIRECTION)) {
+		printf(" %s=%d [%s]\n", E131ParamsConst::DIRECTION, (int) m_tE131Params.nDirection, m_tE131Params.nDirection == ARTNET_INPUT_PORT ? "Input" : "Output");
+	}
+
+	if (isMaskSet(E131_PARAMS_MASK_PRIORITY)) {
+		printf(" %s=%d\n", E131ParamsConst::PRIORITY, m_tE131Params.nPriority);
+	}
+#endif
 }
 
-/**
- *
- * @return
- */
-const bool E131Params::isHaveCustomCid(void) {
-	return E131HaveCustomCid;
+uint16_t E131Params::GetUniverse(uint8_t nPort, bool &IsSet) {
+	assert(nPort < E131_PARAMS_MAX_PORTS);
+
+	IsSet = isMaskSet(E131_PARAMS_MASK_UNIVERSE_A << nPort);
+
+	return m_tE131Params.nUniversePort[nPort];
 }
 
-/**
- *
- * @return
- */
-const char* E131Params::GetCidString(void) {
-	return E131ParamsCidString;
+void E131Params::staticCallbackFunction(void *p, const char *s) {
+	assert(p != 0);
+	assert(s != 0);
+
+	((E131Params *) p)->callbackFunction(s);
 }
+
+

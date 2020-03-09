@@ -1,0 +1,6 @@
+#
+DEFINES = RASPPI #NDEBUG
+#
+EXTRA_INCLUDES = src
+#
+include ../linux-template/lib/Rules.mk

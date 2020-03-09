@@ -1,9 +1,8 @@
-
 /**
  * @file pcf8591.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,34 +26,20 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "bcm2835_i2c.h"
-
-#include "i2c.h"
+#include "bob.h"
 
 #include "pcf8591.h"
-
-#include "device_info.h"
 
 #define PCF8591_DAC_ENABLE			0x40
 #define PCF8591_ADC_AUTO_INC_MASK	0x44
 
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
-	bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
-	// ignore device_info->fast_mode
+	i2c_set_address(device_info->slave_address);
+	i2c_set_baudrate(I2C_NORMAL_SPEED);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const bool pcf8591_start(device_info_t *device_info) {
-	bcm2835_i2c_begin();
+bool pcf8591_start(device_info_t *device_info) {
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = PCF8591_DEFAULT_SLAVE_ADDRESS;
@@ -69,34 +54,24 @@ const bool pcf8591_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- *
- * @param
- * @param data
- */
-void pcf8591_dac_write(const device_info_t *device_info, const uint8_t data) {
+void pcf8591_dac_write(const device_info_t *device_info, uint8_t data) {
 	char cmd[2] = { (char) PCF8591_DAC_ENABLE, (char) 0x00 };
 
 	cmd[1] = (char) data;
 
 	i2c_setup(device_info);
-	bcm2835_i2c_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
+	i2c_write_nb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 
 }
 
-/**
- *
- * @param device_info
- * @param channel
- * @return
- */
-const uint8_t pcf8591_adc_read(const device_info_t *device_info, const uint8_t channel) {
-	char data = (uint8_t) channel;
+uint8_t pcf8591_adc_read(const device_info_t *device_info, uint8_t channel) {
+	uint8_t data = channel;
 
 	i2c_setup(device_info);
-	bcm2835_i2c_write(&data, 1);
-	bcm2835_i2c_read(&data, 1);
-	bcm2835_i2c_read(&data, 1);
+	i2c_write(data);
 
-	return (uint8_t) data;
+	data = i2c_read_uint8();
+	data = i2c_read_uint8();
+
+	return data;
 }

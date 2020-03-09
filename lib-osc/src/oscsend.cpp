@@ -2,7 +2,7 @@
  * @file oscsend.cpp
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,29 +23,18 @@
  * THE SOFTWARE.
  */
 
-#ifdef __circle__
 #include <stdint.h>
-#include <assert.h>
-#include <circle/net/socket.h>
-#include <circle/util.h>
-#include <circle/stdarg.h>
-#include <circle/net/socket.h>
-#include <circle/net/ipaddress.h>
-#include <circle/logger.h>
-
-#include "oscutil.h"
-
-static const char FromOscSend[] = "oscsend";
-#else
-#include <stdarg.h>
 #include <stdlib.h>
-
-#include "wifi_udp.h"
-#endif
+#include <stdarg.h>
+#include <assert.h>
 
 #include "oscsend.h"
 #include "oscstring.h"
 #include "oscmessage.h"
+
+#include "network.h"
+
+#include "debug.h"
 
 /**
  * @brief Send a OSC formatted message to the address specified.
@@ -56,19 +45,21 @@ static const char FromOscSend[] = "oscsend";
  * @param types The types of the data items in the message, types are defined in \ref osc_type
  * @param ... The data values to be transmitted. The types of the arguments passed here must agree with the types specified in the type parameter.
  */
-#if defined (__circle__)
-OSCSend::OSCSend(CSocket *pSocket, CIPAddress *pAddress, int port, const char *path, const char *types, ...) :
-		m_pSocket(pSocket), m_pAddress(pAddress), m_Port(port), m_Path(path), m_Types(types), m_Msg(0), m_Result(0) {
-#else
-OSCSend::OSCSend(const int address, const int port, const char *path, const char *types, ...) :
+OSCSend::OSCSend(unsigned nHandle, int address, int port, const char *path, const char *types, ...) :
+		m_nHandle(nHandle),
+		m_Address(address),
+		m_Port(port),
+		m_Path(path),
+		m_Types(types),
+		m_Msg(0),
+		m_Result(-1) {
 
-		m_Address(address), m_Port(port), m_Path(path), m_Types(types), m_Msg(0), m_Result(0) {
-#endif
 	va_list ap;
 	va_start(ap, types);
 	OSCSend::AddVarArgs(ap);
+	va_end(ap);
 
-	if (m_Result == 0) {
+	if ((types == 0) || (m_Result == 0)) {
 		OSCSend::Send();
 	}
 }
@@ -76,71 +67,58 @@ OSCSend::OSCSend(const int address, const int port, const char *path, const char
 OSCSend::~OSCSend(void) {
 	if(m_Msg) {
 		delete m_Msg;
+		m_Msg = 0;
 	}
 }
 
-/**
- *
- * @param ap
- */
 void OSCSend::AddVarArgs(va_list ap) {
 	m_Msg = new OSCMessage();
 
 	while (m_Types && *m_Types) {
 		switch (*m_Types++) {
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 		case OSC_INT32: {
 			int32_t i = va_arg(ap, int32_t);
-			m_Msg->AddInt32(i);
-			m_Result = m_Msg->GetResult();
+			m_Result = m_Msg->AddInt32(i);
 			break;
 		}
 		case OSC_FLOAT: {
 			float f = (float) va_arg(ap, double);
-			m_Msg->AddFloat(f);
-			m_Result = m_Msg->GetResult();
+			m_Result = m_Msg->AddFloat(f);
 			break;
 		}
+#endif
 		case OSC_STRING: {
 			char *s = va_arg(ap, char *);
-			m_Msg->AddString(s);
-			m_Result = m_Msg->GetResult();
+			m_Result = m_Msg->AddString(s);
 			break;
 		}
-		default: {
-			m_Result = -1;
+#if !defined(OSC_MESSAGE_STRING_ONLY)
+		case OSC_BLOB: {
+			OSCBlob *b = va_arg(ap, OSCBlob *);
+			m_Result = m_Msg->AddBlob(b);
 			break;
 		}
-		}
-	}
-
-#if defined (__circle__)
-	if (m_Result != 0) {
-		CLogger::Get ()->Write(FromOscSend, LogPanic, "AddVarArgs failed");
-	}
 #endif
+		default:
+			break;
+		}
 
-	va_end(ap);
+		if(m_Result != 0) {
+			DEBUG_PRINTF("AddVarArgs: %d", m_Result);
+		}
+	}
 }
 
-/**
- *
- */
 void OSCSend::Send(void) {
-	int data_len = OSCString::Size(m_Path) + OSCString::Size(m_Msg->getTypes()) + m_Msg->getDataLength();
-	char *data = (char *)m_Msg->Serialise(m_Path, 0, 0);
+	const uint16_t nDataLength = (uint16_t) OSCString::Size(m_Path) + OSCString::Size(m_Msg->getTypes()) + m_Msg->getDataLength();
+	const uint8_t *pData = (uint8_t *)m_Msg->Serialise(m_Path, 0, 0);
 
-#if defined (__circle__)
-	int nFlag = 0;
-	if (m_pSocket->SendTo((const void *)data, (unsigned)data_len, nFlag, *m_pAddress, (u16)m_Port) != data_len) {
-		CLogger::Get ()->Write(FromOscSend, LogPanic, "Send failed");
-		m_Result = -1;
-	}
-#else
-	wifi_udp_sendto((const uint8_t *)data, (const uint16_t) data_len, m_Address, (uint16_t)m_Port);
-#endif
+	Network::Get()->SendTo(m_nHandle, pData, nDataLength, m_Address, (uint16_t) m_Port);
 
 	// Free the memory allocated by m_Msg->Serialise
-	if(data) {
-		free(data);
+	if(pData) {
+		free((void *)pData);
+		pData = 0;
 	}
 }

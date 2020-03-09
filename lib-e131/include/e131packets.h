@@ -1,8 +1,8 @@
 /**
- * @file packets.h
+ * @file e131packets.h
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,13 @@
  * THE SOFTWARE.
  */
 
-#ifndef PACKETS_H_
-#define PACKETS_H_
+#ifndef E131PACKETS_H_
+#define E131PACKETS_H_
 
 #include <stdint.h>
 
 #include "e131.h"
+#include "e117.h"
 
 #if  ! defined (PACKED)
 #define PACKED __attribute__((packed))
@@ -52,7 +53,7 @@ struct TDataFrameLayer {
 	uint32_t Vector;							///< Identifies 1.31 data as DMP Protocol PDU. Fixed 0x00000002
 	uint8_t SourceName[E131_SOURCE_NAME_LENGTH];///< User Assigned Name of Source. UTF-8 [UTF-8] encoded string, null-terminated
 	uint8_t Priority;							///< Data priority if multiple sources. 0-200, default of 100
-	uint16_t Reserved;							///< Reserved. Transmitter Shall Send 0. Receivers Shall Ignore
+	uint16_t SynchronizationAddress;			///< Universe on which synchronization packets are transmitted
 	uint8_t SequenceNumber;						///< Sequence Number. To detect duplicate or out of order packets
 	uint8_t Options;							///< Options Flags Bit. 7 = Preview_Data Bit 6 = Stream_Terminated
 	uint16_t Universe;							///< Universe Number. Identifier for a distinct stream of DMX Data
@@ -164,4 +165,31 @@ struct TE131 {
 	union UE131Packet E131Packet;	///<
 };
 
-#endif /* PACKETS_H_ */
+#define ROOT_LAYER_SIZE						sizeof(struct TRootLayer)
+
+#define DATA_FRAME_LAYER_SIZE				sizeof(struct TDataFrameLayer)
+#define DATA_LAYER_SIZE						sizeof(struct TDataDMPLayer)
+
+#define DISCOVERY_FRAME_LAYER_SIZE			sizeof(struct TDiscoveryFrameLayer)
+#define DISCOVERY_LAYER_SIZE				sizeof(struct TUniverseDiscoveryLayer)
+
+#define SYNCHRONIZATION_FRAME_LAYER_SIZE	sizeof(struct TE131SynchronizationFrameLayer)
+
+#define DISCOVERY_LAYER_LENGTH(x)			(DISCOVERY_LAYER_SIZE - ((512 - (x)) * 2))
+#define DISCOVERY_FRAME_LAYER_LENGTH(x)		(DISCOVERY_FRAME_LAYER_SIZE + DISCOVERY_LAYER_LENGTH(x))
+#define DISCOVERY_ROOT_LAYER_LENGTH(x)		(ROOT_LAYER_SIZE - 16 + DISCOVERY_FRAME_LAYER_LENGTH(x))
+
+#define DISCOVERY_PACKET_SIZE(x)			(ROOT_LAYER_SIZE + DISCOVERY_FRAME_LAYER_SIZE + DISCOVERY_LAYER_LENGTH(x))
+
+#define SYNCHRONIZATION_LAYER_LENGTH		(SYNCHRONIZATION_FRAME_LAYER_SIZE)
+#define SYNCHRONIZATION_ROOT_LAYER_LENGTH	(ROOT_LAYER_SIZE - 16 + SYNCHRONIZATION_LAYER_LENGTH)
+
+#define SYNCHRONIZATION_PACKET_SIZE			(ROOT_LAYER_SIZE + SYNCHRONIZATION_FRAME_LAYER_SIZE)
+
+#define DATA_LAYER_LENGTH(x)				(DATA_LAYER_SIZE - 513 + (x))
+#define DATA_FRAME_LAYER_LENGTH(x)			(DATA_FRAME_LAYER_SIZE + DATA_LAYER_LENGTH(x))
+#define DATA_ROOT_LAYER_LENGTH(x)			(ROOT_LAYER_SIZE - 16 + DATA_FRAME_LAYER_LENGTH(x))
+
+#define DATA_PACKET_SIZE(x)					(ROOT_LAYER_SIZE + DATA_FRAME_LAYER_SIZE + DATA_LAYER_LENGTH(x))
+
+#endif /* E131PACKETS_H_ */

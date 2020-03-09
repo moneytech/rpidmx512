@@ -1,4 +1,10 @@
-## Raspberry Pi library for the MIDI implementation ##
+# Library MIDI
+## Open Source library for the MIDI implementation
 
-[http://www.raspberrypi-dmx.org](http://www.raspberrypi-dmx.org)
+Supported boards:
+
+- Orange Pi Zero
+- Orange Pi One (HDMI output)
+
+[http://www.orangepi-dmx.org](http://www.orangepi-dmx.org)
 

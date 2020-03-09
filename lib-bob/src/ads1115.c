@@ -2,7 +2,7 @@
  * @file ads1115.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,30 +26,23 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "bcm2835.h"
-#include "bcm2835_i2c.h"
-
-#include "i2c.h"
+#include "bob.h"
 
 #include "ads1x15.h"
 #include "ads1115.h"
 
-#include "device_info.h"
-
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
+#if defined(BARE_METAL) && !defined(H3)
+#include "bcm2835.h"
 #define TIMEOUT_WAIT(stop_if_true, usec) 						\
 do {															\
 	const uint32_t micros_now = BCM2835_ST->CLO;				\
@@ -58,7 +51,9 @@ do {															\
 			break;												\
 	} while( BCM2835_ST->CLO - micros_now < (uint32_t)usec);	\
 } while(0);
-
+#else
+ #define TIMEOUT_WAIT(stop_if_true, usec)
+#endif
 
 static void trigger_conversion(void) {
 	i2c_write_reg_uint16_mask(ADS1x15_REG_CONFIG, ADS1x15_CONFIG_OS_SINGLE, ADS1x15_REG_CONFIG_OS_MASK);
@@ -68,7 +63,7 @@ static void poll_conversion(void) {
 	TIMEOUT_WAIT((i2c_read_reg_uint16(ADS1x15_REG_CONFIG) == ADS1x15_CONFIG_OS_IDLE), 10000);
 }
 
-static void set_channel(const uint8_t channel) {
+static void set_channel(uint8_t channel) {
 	uint16_t mux;
 
 	switch (channel) {
@@ -101,15 +96,10 @@ static void set_channel(const uint8_t channel) {
 	i2c_write_reg_uint16_mask(ADS1x15_REG_CONFIG, ADS1x15_MODE_CONTINUOUS, ADS1x15_REG_CONFIG_MODE_MASK);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const bool ads1115_start(device_info_t *device_info) {
+bool ads1115_start(device_info_t *device_info) {
 	uint16_t config;
 
-	bcm2835_i2c_begin();
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = ADS1115_DEFAULT_SLAVE_ADDRESS;
@@ -138,13 +128,7 @@ const bool ads1115_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- *
- * @param device_info
- * @param channel
- * @return
- */
-const uint16_t ads1115_read(const device_info_t *device_info, const uint8_t channel) {
+uint16_t ads1115_read(const device_info_t *device_info,uint8_t channel) {
 	device_info_t *d = (device_info_t *) device_info;
 
 	if (channel > ADS1115_CH3) {
@@ -161,12 +145,7 @@ const uint16_t ads1115_read(const device_info_t *device_info, const uint8_t chan
 	return i2c_read_reg_uint16(ADS1x15_REG_CONVERSION);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ads1115_data_rate_t ads1115_get_data_rate(const device_info_t *device_info) {
+ads1115_data_rate_t ads1115_get_data_rate(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -177,11 +156,6 @@ const ads1115_data_rate_t ads1115_get_data_rate(const device_info_t *device_info
 	return (ads1115_data_rate_t)value;
 }
 
-/**
- *
- * @param device_info
- * @param data_rate
- */
 void ads1115_set_data_rate(const device_info_t *device_info, const ads1115_data_rate_t data_rate) {
 	i2c_setup(device_info);
 	i2c_write_reg_uint16_mask(ADS1x15_REG_CONFIG, (const uint16_t) data_rate, ADS1x15_REG_CONFIG_DATA_RATE_MASK);

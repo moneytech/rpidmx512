@@ -1,4 +1,15 @@
-## Raspberry Pi library for the Hardware Abstraction Layer (HAL) implementation ##
+# Library HAL
+## Hardware Abstraction Layer (HAL) implementation ##
 
-[http://www.raspberrypi-dmx.org](http://www.raspberrypi-dmx.org)
+Supported platforms:
+
+- Orange Pi Zero / One (baremetal)
+- Mac OS
+- Linux
+- Cygwin
+- Raspberry Pi (baremetal)
+
+
+
+[http://www.orangepi-dmx.org](http://www.orangepi-dmx.org)
 

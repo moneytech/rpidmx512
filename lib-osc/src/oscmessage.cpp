@@ -2,7 +2,7 @@
  * @file oscmessage.cpp
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,20 +23,14 @@
  * THE SOFTWARE.
  */
 
-#ifdef __circle__
-#include <stdint.h>
-#include <assert.h>
-#include <circle/util.h>
+//#ifndef OSC_MESSAGE_STRING_ONLY
+//#define OSC_MESSAGE_STRING_ONLY
+//#endif
 
-#include "oscutil.h"
-#else
+#include <stdint.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
+#include <string.h>
 #include <assert.h>
-
-#include "util.h"
-#endif
 
 #include "oscmessage.h"
 #include "oscstring.h"
@@ -52,7 +46,7 @@ int lo_pattern_match(const char *, const char *);
 
 static unsigned next_pow2(unsigned x)
 {
-	//x -= 1; // ???
+	x -= 1;
 	x |= (x >> 1);
 	x |= (x >> 2);
 	x |= (x >> 4);
@@ -61,8 +55,6 @@ static unsigned next_pow2(unsigned x)
 
 	return x + 1;
 }
-
-#define osc_pow2_over(a,b)	a = ((b > a) ? (next_pow2(a)) : a)
 
 typedef union pcast32 {
 	int32_t i;
@@ -79,16 +71,30 @@ typedef union pcast64 {
 } osc_pcast64;
 
 OSCMessage::OSCMessage(void) :
-		m_Types(0), m_Typelen(1), m_Typesize(OSC_DEF_TYPE_SIZE), m_Data(0), m_Datalen(0), m_Datasize(0), m_Argv(0), m_Result(0) {
-
+	m_Types(0),
+	m_Typelen(1),
+	m_Typesize(OSC_DEF_TYPE_SIZE),
+	m_Data(0),
+	m_Datalen(0),
+	m_Datasize(0),
+	m_Argv(0),
+	m_Result(OSC_MESSAGE_NULL)
+{
 	m_Types = (char *) calloc(OSC_DEF_TYPE_SIZE, sizeof(char));
 	m_Types[0] = ',';
 	m_Types[1] = '\0';
 }
 
 OSCMessage::OSCMessage(void *nData, unsigned nLen) :
-		m_Types(0), m_Typelen(0), m_Typesize(0), m_Data(0), m_Datalen(0), m_Datasize(0), m_Argv(0), m_Result(0) {
-
+	m_Types(0),
+	m_Typelen(0),
+	m_Typesize(0),
+	m_Data(0),
+	m_Datalen(0),
+	m_Datasize(0),
+	m_Argv(0),
+	m_Result(OSC_INTERNAL_ERROR)
+{
 	char *types = 0, *ptr = 0;
 	int i, argc = 0, remain = nLen, len;
 
@@ -190,53 +196,43 @@ OSCMessage::OSCMessage(void *nData, unsigned nLen) :
 		goto fail;
 	}
 
+	m_Result = OSC_OK;
 	return;
 
 	fail: if (m_Types) {
 		free(m_Types);
+		m_Types = 0;
 	}
 
 	if (m_Data) {
 		free(m_Data);
+		m_Data = 0;
 	}
 
 	if (m_Argv) {
 		free(m_Argv);
+		m_Argv = 0;
 	}
 }
-
 
 OSCMessage::~OSCMessage(void) {
 	if (m_Types) {
 		free(m_Types);
+		m_Types = 0;
 	}
 
 	if (m_Data) {
 		free(m_Data);
+		m_Data = 0;
 	}
 
 	if (m_Argv) {
 		free(m_Argv);
+		m_Argv = 0;
 	}
 }
 
-#if ! defined (__circle__)
-void OSCMessage::Dump(void) {
-	printf("types %s\n", m_Types);
-	printf("typelen %u\n", m_Typelen);
-	printf("typesize %u\n", m_Typesize);
-	printf("datalen %u\n", m_Datalen);
-	printf("datasize %u\n", m_Datasize);
-
-	printf("data : ");
-	char *p =  (char *)m_Data;
-	for (int i = 0 ; i < (int)m_Datasize; i ++) {
-		printf("%x ",  (uint8_t)p[i]);
-	}
-	printf("\n");
-}
-#endif
-
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 int OSCMessage::AddFloat(float a) {
 	osc_pcast32 b;
 	int32_t *nptr = (int32_t *) AddData((unsigned) sizeof(a));
@@ -274,6 +270,7 @@ int OSCMessage::AddInt32(int32_t a) {
 
 	return 0;
 }
+#endif
 
 int OSCMessage::AddString(const char *a) {
 	const unsigned size = OSCString::Size(a);
@@ -292,8 +289,31 @@ int OSCMessage::AddString(const char *a) {
 	return 0;
 }
 
+#if !defined(OSC_MESSAGE_STRING_ONLY)
+int OSCMessage::AddBlob(OSCBlob *pBlob) {
+	const unsigned size = pBlob->GetSize();
+	const unsigned dsize = pBlob->GetDataSize();
 
-int OSCMessage::GetResult(void) {
+	char *nptr = (char *) AddData(size);
+
+	if (!nptr) {
+		return -1;
+	}
+
+	if (AddTypeChar(OSC_BLOB)) {
+		return -1;
+	}
+
+	memset(nptr + size - 4, 0, 4);
+
+	memcpy(nptr, &dsize, sizeof(dsize));
+	memcpy(nptr + sizeof(uint32_t), pBlob->GetDataPtr(), dsize);
+
+	return 0;
+}
+#endif
+
+int OSCMessage::GetResult(void) const {
 	return m_Result;
 }
 
@@ -310,14 +330,15 @@ osc_type OSCMessage::GetType(unsigned argc) {
 	return (osc_type) m_Types[argc + 1];
 }
 
-char *OSCMessage::getTypes(void) {
+char *OSCMessage::getTypes(void) const {
 	return m_Types;
 }
 
-unsigned OSCMessage::getDataLength(void) {
+unsigned OSCMessage::getDataLength(void) const {
 	return m_Datalen;
 }
 
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 float OSCMessage::GetFloat(unsigned argc) {
 	if (argc > m_Typelen) {
 		m_Result = OSC_INVALID_ARGUMENT;
@@ -349,6 +370,7 @@ int OSCMessage::GetInt(unsigned argc) {
 
 	return val32.nl;
 }
+#endif
 
 char * OSCMessage::GetString(unsigned argc) {
 	if (argc > m_Typelen) {
@@ -363,6 +385,7 @@ char * OSCMessage::GetString(unsigned argc) {
 	return (char *)m_Argv[argc];
 }
 
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 OSCBlob OSCMessage::GetBlob(unsigned argc) {
 	void *data;
 	unsigned int size = 0;
@@ -385,9 +408,9 @@ OSCBlob OSCMessage::GetBlob(unsigned argc) {
 
 	return OSCBlob(p, size);
 }
+#endif
 
 void *OSCMessage::Serialise(const char *path, void *to, unsigned * size) {
-
 	int i, argc;
 	char *types, *ptr;
 	unsigned s = OSCString::Size(path) + OSCString::Size(m_Types) + m_Datalen;
@@ -425,35 +448,31 @@ void *OSCMessage::Serialise(const char *path, void *to, unsigned * size) {
 }
 
 signed OSCMessage::ArgValidate(osc_type type, void *data, unsigned size) {
-	if (size < 0) {
-		return -1;
-	}
 
 	switch (type) {
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 	case OSC_TRUE:
 	case OSC_FALSE:
 	case OSC_NIL:
 	case OSC_INFINITUM:
 		return 0;
-
 	case OSC_INT32:
 	case OSC_FLOAT:
 	case OSC_MIDI:
 	case OSC_CHAR:
 		return size >= 4 ? 4 : -OSC_INVALID_SIZE;
-
 	case OSC_INT64:
 	case OSC_TIMETAG:
 	case OSC_DOUBLE:
 		return size >= 8 ? 8 : -OSC_INVALID_SIZE;
-
+#endif
 	case OSC_STRING:
 	case OSC_SYMBOL:
 		return OSCString::Validate(data, size);
-
+#if !defined(OSC_MESSAGE_STRING_ONLY)
 	case OSC_BLOB:
 		return OSCBlob::Validate(data, size);
-
+#endif
 	default:
 		return -OSC_INVALID_TYPE;
 	}
@@ -470,18 +489,15 @@ void OSCMessage::ArgNetworkEndian(osc_type type, void *data)
 	case OSC_CHAR:
 		*(int32_t *) data = __builtin_bswap32(*(int32_t *) data);
 		break;
-
 	case OSC_TIMETAG:
 		*(uint32_t *) data = __builtin_bswap32(*(uint32_t *) data);
 		data = ((uint32_t *) data) + 1;
 		*(uint32_t *) data = __builtin_bswap32(*(uint32_t *) data);
 		break;
-
 	case OSC_INT64:
 	case OSC_DOUBLE:
 		*(int64_t *) data = __builtin_bswap64(*(int64_t *) data);
 		break;
-
 	case OSC_STRING:
 	case OSC_SYMBOL:
 	case OSC_MIDI:
@@ -506,18 +522,15 @@ void OSCMessage::ArgHostEndian(osc_type type, void *data)
     case OSC_CHAR:
         *(int32_t *) data = __builtin_bswap32(*(int32_t *) data);
         break;
-
     case OSC_TIMETAG:
         *(int32_t *) data = __builtin_bswap32(*(int32_t *) data);
         data = ((int32_t *) data) + 1;
         *(int32_t *) data = __builtin_bswap32(*(int32_t *) data);
         break;
-
     case OSC_INT64:
     case OSC_DOUBLE:
         *(int64_t *) data = __builtin_bswap64(*(int64_t *) data);
         break;
-
     case OSC_STRING:
     case OSC_SYMBOL:
     case OSC_MIDI:
@@ -527,7 +540,6 @@ void OSCMessage::ArgHostEndian(osc_type type, void *data)
     case OSC_INFINITUM:
         /* these are fine */
         break;
-
     default:
         /* Unknown type */
         break;
@@ -542,10 +554,13 @@ void *OSCMessage::AddData(unsigned s) {
 
     void *new_data = 0;
 
-    if (!new_datasize)
+    if (!new_datasize) {
         new_datasize = OSC_DEF_DATA_SIZE;
+    }
 
-    osc_pow2_over(new_datasize, new_datalen);
+	if (new_datalen > new_datasize) {
+		new_datasize  = next_pow2(new_datalen);
+	}
 
     new_data = realloc(m_Data, new_datasize);
 
@@ -598,6 +613,7 @@ int OSCMessage::AddTypeChar(char t) {
 unsigned OSCMessage::ArgSize(osc_type type, void *data)
 {
     switch (type) {
+#if !defined(OSC_MESSAGE_STRING_ONLY)
     case OSC_TRUE:
     case OSC_FALSE:
     case OSC_NIL:
@@ -614,14 +630,14 @@ unsigned OSCMessage::ArgSize(osc_type type, void *data)
     case OSC_TIMETAG:
     case OSC_DOUBLE:
         return 8;
-
+#endif
     case OSC_STRING:
     case OSC_SYMBOL:
         return OSCString::Size((char *) data);
-
+#if !defined(OSC_MESSAGE_STRING_ONLY)
     case OSC_BLOB:
         return OSCBlob::Size(data);
-
+#endif
     default:
     	// Unknown
         return 0;

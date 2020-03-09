@@ -3,8 +3,6 @@
 	<name>lib-utils</name>
 	<comment></comment>
 	<projects>
-		<project>lib-fb</project>
-		<project>lib-ff11</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>
@@ -22,6 +20,7 @@
 	</buildSpec>
 	<natures>
 		<nature>org.eclipse.cdt.core.cnature</nature>
+		<nature>org.eclipse.cdt.core.ccnature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>

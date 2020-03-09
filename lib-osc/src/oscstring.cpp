@@ -2,7 +2,7 @@
  * @file oscstring.cpp
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,28 +23,22 @@
  * THE SOFTWARE.
  */
 
-#ifdef __circle__
 #include <stdint.h>
+#include <string.h>
 #include <assert.h>
-#include <circle/util.h>
 
-#include "oscutil.h"
-#else
-#include "util.h"
+#ifndef ALIGNED
+ #define ALIGNED __attribute__ ((aligned (4)))
 #endif
 
 #include "oscstring.h"
 #include "osc.h"
 
-unsigned OSCString::Validate(void *data, unsigned size) {
+unsigned OSCString::Validate(void *pData, unsigned nSize) {
 	unsigned i = 0, len = 0;
-	char *pos = (char *) data;
+	char *pos = (char *) pData;
 
-	if (size < 0) {
-		return -OSC_STRING_INVALID_SIZE;
-	}
-
-	for (i = 0; i < size; ++i) {
+	for (i = 0; i < nSize; ++i) {
 		if (pos[i] == '\0') {
 			len = 4 * (i / 4 + 1);
 			break;
@@ -55,7 +49,7 @@ unsigned OSCString::Validate(void *data, unsigned size) {
 		return -OSC_STRING_NOT_TERMINATED;
 	}
 
-	if (len > size) {
+	if (len > nSize) {
 		return -OSC_STRING_INVALID_SIZE;
 	}
 
@@ -68,13 +62,6 @@ unsigned OSCString::Validate(void *data, unsigned size) {
 	return len;
 }
 
-/**
- * @brief A function to calculate the amount of OSC message space required by a C char *.
- *
- * @param s
- *
- * @return Returns the storage size in bytes, which will always be a multiple of four.
- */
 unsigned OSCString::Size(const char *s) {
 	return 4 * (strlen(s) / 4 + 1);
 }

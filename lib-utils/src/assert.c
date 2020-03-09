@@ -2,7 +2,7 @@
  * @file assert.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,11 @@
 
 #include "console.h"
 
-extern void bcm2835_watchdog_stop(void);
+#if defined (H3)
+	void h3_watchdog_disable(void);
+#else
+	void bcm2835_watchdog_stop(void);
+#endif
 
 /*
  * Description is taken from newlib https://sourceware.org/newlib/
@@ -56,7 +60,17 @@ extern void bcm2835_watchdog_stop(void);
 
 void __assert_func(const char *file, int line, const char *func, const char *failedexpr) {
 	console_set_fg_color(CONSOLE_RED);
+
 	printf("assertion \"%s\" failed: file \"%s\", line %d%s%s\n", failedexpr, file, line, func ? ", function: " : "", func ? func : "");
+
+	console_set_fg_color(CONSOLE_WHITE);
+
+#if defined (H3)
+	h3_watchdog_disable();
+#else
 	bcm2835_watchdog_stop();
-	for(;;);
+#endif
+
+	for (;;)
+		;
 }

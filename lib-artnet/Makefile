@@ -1,4 +1,6 @@
 #
-EXTRA_INCLUDES = ../lib-lightset/include ../lib-esp8266/include ../lib-hal/include ../lib-utils/include
+DEFINES = NDEBUG
+#
+EXTRA_INCLUDES = ../lib-lightset/include ../lib-ledblink/include ../lib-properties/include ../lib-hal/include ../lib-network/include
 #
 include ../firmware-template/lib/Rules.mk

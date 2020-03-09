@@ -2,7 +2,7 @@
  * @file mcp23s08.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,13 +24,11 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
-#include "bcm2835_spi.h"
-#include "bcm2835_aux_spi.h"
+#include "bob.h"
 
 #include "mcp23s08.h"
-
-#include "device_info.h"
 
 #define MCP23S08_IODIR					0x00	///< I/O DIRECTION (IODIR) REGISTER
 #define MCP23S08_IPOL					0x01	///< INPUT POLARITY (IPOL) REGISTER
@@ -49,24 +47,18 @@
 
 #define MCP23S08_IOCON_HAEN				(uint8_t)(1 << 3)
 
-/**
- * @ingroup SPI-DIO
- *
- * @param device_info
- * @return
- */
-void mcp23s08_start(device_info_t *device_info) {
+bool mcp23s08_start(device_info_t *device_info) {
 
-	if (device_info->slave_address == (uint8_t) 0) {
+	if (device_info->slave_address == 0) {
 		device_info->slave_address = MCP23S08_DEFAULT_SLAVE_ADDRESS;
 	} else {
 		device_info->slave_address = device_info->slave_address & 0x03;
 	}
 
-	if (device_info->speed_hz == (uint32_t) 0) {
-		device_info->speed_hz = (uint32_t) MCP23S08_SPI_SPEED_DEFAULT_HZ;
+	if (device_info->speed_hz == 0) {
+		device_info->speed_hz = MCP23S08_SPI_SPEED_DEFAULT_HZ;
 	} else if (device_info->speed_hz > (uint32_t) MCP23S08_SPI_SPEED_MAX_HZ) {
-		device_info->speed_hz = (uint32_t) MCP23S08_SPI_SPEED_MAX_HZ;
+		device_info->speed_hz = MCP23S08_SPI_SPEED_MAX_HZ;
 	}
 
 	if (device_info->chip_select >= SPI_CS2) {
@@ -74,21 +66,15 @@ void mcp23s08_start(device_info_t *device_info) {
 		bcm2835_aux_spi_begin();
 		device_info->internal.clk_div = bcm2835_aux_spi_CalcClockDivider(device_info->speed_hz);
 	} else {
-		bcm2835_spi_begin();
-		device_info->internal.clk_div = (uint16_t)((uint32_t) BCM2835_CORE_CLK_HZ / device_info->speed_hz);
+		FUNC_PREFIX(spi_begin());;
 	}
 
 	mcp23s08_reg_write(device_info, MCP23S08_IOCON, MCP23S08_IOCON_HAEN);
+
+	return true;
 }
 
-/**
- * @ingroup SPI-DIO
- *
- * @param device_info
- * @param reg
- * @return
- */
-uint8_t mcp23s08_reg_read(const device_info_t *device_info, const uint8_t reg) {
+uint8_t mcp23s08_reg_read(const device_info_t *device_info, uint8_t reg) {
 	char spiData[3];
 
 	spiData[0] = (char) MCP23S08_CMD_READ | (char) ((device_info->slave_address) << 1);
@@ -98,22 +84,15 @@ uint8_t mcp23s08_reg_read(const device_info_t *device_info, const uint8_t reg) {
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_transfern(spiData, 3);
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_transfern(spiData, 3);
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_transfern(spiData, 3));
 	}
 
 	return (uint8_t) spiData[2];
 }
 
-/**
- * @ingroup SPI-DIO
- *
- * @param device_info
- * @param reg
- * @param value
- */
-void mcp23s08_reg_write(const device_info_t *device_info, const uint8_t reg, const uint8_t value) {
+void mcp23s08_reg_write(const device_info_t *device_info, uint8_t reg, uint8_t value) {
 	char spiData[3];
 
 	spiData[0] = (char) MCP23S08_CMD_WRITE	| (char) ((device_info->slave_address) << 1);
@@ -124,21 +103,14 @@ void mcp23s08_reg_write(const device_info_t *device_info, const uint8_t reg, con
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(spiData, 3);
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(spiData, 3);
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		FUNC_PREFIX(spi_writenb(spiData, 3));
 	}
 }
 
-/**
- * @ingroup SPI-DIO
- * Sets the Function Select register for the given pin, which configures
- * the pin as Input, Output
- * @param device_info
- * @param pin GP number, or one of MCP23S08_PIN_* from \ref mcp23s08Pin.
- * @param mode Mode to set the pin to, one of MCP23S08_FSEL_* from \ref mcp23s08FunctionSelect
- */
-void mcp23s08_gpio_fsel(const device_info_t *device_info, const uint8_t pin, const uint8_t mode) {
+void mcp23s08_gpio_fsel(const device_info_t *device_info, uint8_t pin, uint8_t mode) {
 	uint8_t data = mcp23s08_reg_read(device_info, MCP23S08_IODIR);
 
 	if (mode == MCP23S08_FSEL_OUTP) {
@@ -150,25 +122,13 @@ void mcp23s08_gpio_fsel(const device_info_t *device_info, const uint8_t pin, con
 	mcp23s08_reg_write(device_info, MCP23S08_IODIR, data);
 }
 
-/**
- * @ingroup SPI-DIO
- * Sets the specified pin output to low.
- * @param device_info
- * @param pin GP number, or one of MCP23S08_PIN_* from \ref mcp23s08Pin.
- */
-void mcp23s08_gpio_set(const device_info_t *device_info, const uint8_t pin) {
+void mcp23s08_gpio_set(const device_info_t *device_info, uint8_t pin) {
 	uint8_t data = mcp23s08_reg_read(device_info, MCP23S08_OLAT);
 	data |= pin;
 	mcp23s08_reg_write(device_info, MCP23S08_GPIO, data);
 }
 
-/**
- * @ingroup SPI-DIO
- * Sets the specified pin output to low.
- * @param device_info
- * @param pin GP number, or one of MCP23S08_PIN_* from \ref mcp23s08Pin.
- */
-void mcp23s08_gpio_clr(const device_info_t *device_info, const uint8_t pin) {
+void mcp23s08_gpio_clr(const device_info_t *device_info, uint8_t pin) {
 	uint8_t data = mcp23s08_reg_read(device_info, MCP23S08_OLAT);
 	data &= (~pin);
 	mcp23s08_reg_write(device_info, MCP23S08_GPIO, data);

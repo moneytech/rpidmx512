@@ -1,13 +1,12 @@
 #
-DEFINES = RDM_CONTROLLER UPDATE_CONFIG_FILE
+DEFINES = RDM_CONTROLLER UPDATE_CONFIG_FILE ENABLE_MMU NDEBUG
 #
-LIBS = dmx monitor
+LIBS = widget dmx rdm usb
 #
-SRCDIR = common/lib firmware lib
+SRCDIR = firmware
 #
-EXTRA_INCLUDES = ../lib-ff11/src
+EXTRA_INCLUDES = 
 
 include ../firmware-template/Rules.mk
 
 prerequisites:
-	./generate_sofware_version_id.sh	

@@ -2,7 +2,7 @@
  * @file main.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,179 +25,280 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
+#include <netinet/in.h>
+#include <assert.h>
 
 #include "hardware.h"
-#include "hardware_uuid.h"
-
-#include "led.h"
+#include "networkesp8266.h"
+#include "ledblink.h"
 
 #include "console.h"
-#include "oled.h"
+#include "display.h"
 
-#include "inet.h"
-#include "uuid.h"
+#include "wifi.h"
 
-#include "e131.h"
 #include "e131bridge.h"
 #include "e131params.h"
 
-#include "dmxsender.h"
+// DMX output
 #include "dmxparams.h"
-#include "dmxmonitor.h"
+#include "dmxsend.h"
+#if defined(ORANGE_PI)
+ #include "storedmxsend.h"
+#endif
+#ifndef H3
+ // Monitor Output
+ #include "dmxmonitor.h"
+#endif
+// Pixel Controller
+#include "lightset.h"
+#include "ws28xxdmxparams.h"
+#include "ws28xxdmx.h"
+#include "ws28xxdmxgrouping.h"
+#if defined(ORANGE_PI)
+ #include "storews28xxdmx.h"
+#endif
 
-#include "wifi.h"
-#include "wifi_udp.h"
-
-#include "util.h"
+#if defined(ORANGE_PI)
+ #include "spiflashinstall.h"
+ #include "spiflashstore.h"
+ #include "storee131.h"
+#endif
 
 #include "software_version.h"
 
+static const char NETWORK_INIT[] = "Network init ...";
+static const char BRIDGE_PARMAS[] = "Setting Bridge parameters ...";
+static const char START_BRIDGE[] = "Starting the Bridge ...";
+static const char BRIDGE_STARTED[] = "Bridge started";
+
 extern "C" {
 
-void __attribute__((interrupt("FIQ"))) c_fiq_handler(void) {}
-void __attribute__((interrupt("IRQ"))) c_irq_handler(void) {}
-
 void notmain(void) {
-	_output_type output_type = OUTPUT_TYPE_MONITOR;
+	Hardware hw;
+	NetworkESP8266 nw;
+	LedBlink lb;
+	Display display(DISPLAY_SSD1306);
+
+#if defined (ORANGE_PI)
+	if (hw.GetBootDevice() == BOOT_DEVICE_MMC0) {
+		SpiFlashInstall spiFlashInstall;
+	}
+
+	SpiFlashStore spiFlashStore;
+	StoreE131 storeE131;
+	StoreDmxSend storeDmxSend;
+	StoreWS28xxDmx storeWS28xxDmx;
+
+	E131Params e131params((E131ParamsStore *)&storeE131);
+#else
 	E131Params e131params;
-	DMXParams dmxparams;
-	DMXSender dmx;
+#endif
+
+	if (e131params.Load()) {
+		e131params.Dump();
+	}
+
+	const TLightSetOutputType tOutputType = e131params.GetOutputType();
+
+	uint8_t nHwTextLength;
+	printf("[V%s] %s Compiled on %s at %s\n", SOFTWARE_VERSION, hw.GetBoardName(nHwTextLength), __DATE__, __TIME__);
+
+	console_puts("WiFi sACN E1.31 ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_DMX ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("DMX Output");
+	console_set_fg_color(CONSOLE_WHITE);
+#ifndef H3
+	console_puts(" / ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("Real-time DMX Monitor");
+	console_set_fg_color(CONSOLE_WHITE);
+#endif
+	console_puts(" / ");
+	console_set_fg_color(tOutputType == LIGHTSET_OUTPUT_TYPE_SPI ? CONSOLE_GREEN : CONSOLE_WHITE);
+	console_puts("Pixel controller {4 Universes}");
+	console_set_fg_color(CONSOLE_WHITE);
+#ifdef H3
+	console_putc('\n');
+#endif
+
+#ifndef H3
 	DMXMonitor monitor;
-	uuid_t uuid;
-	char uuid_str[UUID_STRING_LENGTH + 1] ALIGNED;
-	oled_info_t oled_info = { OLED_128x64_I2C_DEFAULT };
-	bool oled_connected = false;
-	struct ip_info ip_config;
-
-	oled_connected = oled_start(&oled_info);
-
-	(void) e131params.Load();
-
-	if (e131params.isHaveCustomCid()) {
-		memcpy(uuid_str, e131params.GetCidString(), UUID_STRING_LENGTH);
-		uuid_str[UUID_STRING_LENGTH] = '\0';
-		uuid_parse((const char *)uuid_str, uuid);
-	} else {
-		hardware_uuid(uuid);
-		uuid_unparse(uuid, uuid_str);
-	}
-
-	output_type = e131params.GetOutputType();
-
-	if (output_type == OUTPUT_TYPE_MONITOR) {
-		//
-	} else {
-		output_type = OUTPUT_TYPE_DMX;
-		(void) dmxparams.Load();
-	}
-
-	printf("[V%s] %s Compiled on %s at %s\n", SOFTWARE_VERSION, hardware_board_get_model(), __DATE__, __TIME__);
-	printf("WiFi sACN E1.31 DMX Out / Real-time DMX Monitor");
-
-	OLED_CONNECTED(oled_connected, oled_puts(&oled_info, "WiFi sACN E1.31"));
+#endif
 
 	console_set_top_row(3);
 
-	if (!wifi(&ip_config)) {
-		for (;;)
-			;
-	}
+	hw.SetLed(HARDWARE_LED_ON);
 
-	console_status(CONSOLE_YELLOW, "Starting UDP ...");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Starting UDP ..."));
+	console_status(CONSOLE_YELLOW, NETWORK_INIT);
+	display.TextStatus(NETWORK_INIT);
 
-	wifi_udp_begin(E131_DEFAULT_PORT);
+#if defined (ORANGE_PI)
+	nw.Init();
+	//nw.Init((NetworkParamsStore *)spiFlashStore.GetStoreNetwork());
+#else
+	nw.Init();
+#endif
 
-	console_status(CONSOLE_YELLOW, "Join group ...");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Join group ..."));
-
-	uint32_t group_ip;
-	(void)inet_aton("239.255.0.0", &group_ip);
-	const uint16_t universe = e131params.GetUniverse();
-	group_ip = group_ip | ((uint32_t)(((uint32_t)universe & (uint32_t)0xFF) << 24)) | ((uint32_t)(((uint32_t)universe & (uint32_t)0xFF00) << 8));
-	wifi_udp_joingroup(group_ip);
+	console_status(CONSOLE_YELLOW, BRIDGE_PARMAS);
+	display.TextStatus(BRIDGE_PARMAS);
 
 	E131Bridge bridge;
+	e131params.Set(&bridge);
 
-	bridge.setCid(uuid);
-	bridge.setUniverse(universe);
-	bridge.setMergeMode(e131params.GetMergeMode());
+	const uint8_t nUniverse = e131params.GetUniverse();
 
-	if (output_type == OUTPUT_TYPE_MONITOR) {
+	bridge.SetUniverse(0, E131_OUTPUT_PORT, nUniverse);
+	bridge.SetDirectUpdate(false);
+
+	DMXSend dmx;
+	LightSet *pSpi;
+
+	if (tOutputType == LIGHTSET_OUTPUT_TYPE_SPI) {
+#if defined (ORANGE_PI)
+		WS28xxDmxParams ws28xxparms((WS28xxDmxParamsStore *) StoreWS28xxDmx::Get());
+#else
+		WS28xxDmxParams ws28xxparms;
+#endif
+		if (ws28xxparms.Load()) {
+			ws28xxparms.Dump();
+		}
+
+		display.Printf(7, "%s:%d %c", WS28xx::GetLedTypeString(ws28xxparms.GetLedType()), ws28xxparms.GetLedCount(), ws28xxparms.IsLedGrouping() ? 'G' : ' ');
+
+		if (ws28xxparms.IsLedGrouping()) {
+			WS28xxDmxGrouping *pWS28xxDmxGrouping = new WS28xxDmxGrouping;
+			assert(pWS28xxDmxGrouping != 0);
+			ws28xxparms.Set(pWS28xxDmxGrouping);
+			pSpi = pWS28xxDmxGrouping;
+		} else  {
+			WS28xxDmx *pWS28xxDmx = new WS28xxDmx;
+			assert(pWS28xxDmx != 0);
+			ws28xxparms.Set(pWS28xxDmx);
+			pSpi = pWS28xxDmx;
+
+			const uint16_t nLedCount = pWS28xxDmx->GetLEDCount();
+
+			if (pWS28xxDmx->GetLEDType() == SK6812W) {
+				if (nLedCount > 128) {
+					bridge.SetDirectUpdate(true);
+					bridge.SetUniverse(1, E131_OUTPUT_PORT, nUniverse + 1);
+				}
+				if (nLedCount > 256) {
+					bridge.SetUniverse(2, E131_OUTPUT_PORT, nUniverse + 2);
+				}
+				if (nLedCount > 384) {
+					bridge.SetUniverse(3, E131_OUTPUT_PORT, nUniverse + 3);
+				}
+			} else {
+				if (nLedCount > 170) {
+					bridge.SetDirectUpdate(true);
+					bridge.SetUniverse(1, E131_OUTPUT_PORT, nUniverse + 1);
+				}
+				if (nLedCount > 340) {
+					bridge.SetUniverse(2, E131_OUTPUT_PORT, nUniverse + 2);
+				}
+				if (nLedCount > 510) {
+					bridge.SetUniverse(3, E131_OUTPUT_PORT, nUniverse + 3);
+				}
+			}
+		}
+
+		bridge.SetOutput(pSpi);
+	}
+#ifndef H3
+	else if (tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+		// There is support for HEX output only
 		bridge.SetOutput(&monitor);
+		monitor.Cls();
 		console_set_top_row(20);
-	} else {
+	}
+#endif
+	else {
+#if defined (ORANGE_PI)
+		DMXParams dmxparams((DMXParamsStore *)&storeDmxSend);
+#else
+		DMXParams dmxparams;
+#endif
+		if (dmxparams.Load()) {
+			dmxparams.Dump();
+			dmxparams.Set(&dmx);
+		}
+
 		bridge.SetOutput(&dmx);
-
-		dmx.SetBreakTime(dmxparams.GetBreakTime());
-		dmx.SetMabTime(dmxparams.GetMabTime());
-
-		const uint8_t refresh_rate = dmxparams.GetRefreshRate();
-		uint32_t period = (uint32_t) 0;
-
-		if (refresh_rate != (uint8_t) 0) {
-			period = (uint32_t) (1E6 / refresh_rate);
-		}
-		dmx.SetPeriodTime(period);
 	}
 
-	printf("\nBridge configuration\n");
-	const uint8_t *firmware_version = bridge.GetSoftwareVersion();
-	printf(" Firmware     : %d.%d\n", firmware_version[0], firmware_version[1]);
-	printf(" CID          : %s\n", uuid_str);
-	printf(" Universe     : %d\n", bridge.getUniverse());
-	printf(" Merge mode   : %s\n", bridge.getMergeMode() == E131_MERGE_HTP ? "HTP" : "LTP");
-	printf(" Multicast ip : " IPSTR "\n", IP2STR(group_ip));
-	printf(" Unicast ip   : " IPSTR "\n\n", IP2STR(ip_config.ip.addr));
+	bridge.Print();
 
-	if (output_type == OUTPUT_TYPE_DMX) {
-		printf("DMX Send parameters\n");
-		printf(" Break time   : %d\n", (int) dmx.GetBreakTime());
-		printf(" MAB time     : %d\n", (int) dmx.GetMabTime());
-		printf(" Refresh rate : %d\n", (int) (1E6 / dmx.GetPeriodTime()));
+	if (tOutputType == LIGHTSET_OUTPUT_TYPE_SPI) {
+		assert(pSpi != 0);
+		pSpi->Print();
+	} else if (tOutputType == LIGHTSET_OUTPUT_TYPE_MONITOR) {
+		// Nothing to do
+	} else {
+		dmx.Print();
 	}
 
-	if (oled_connected) {
-		oled_set_cursor(&oled_info, 0, 18);
+	for (unsigned i = 0; i < 7 ; i++) {
+		display.ClearLine(i);
+	}
 
-		switch (output_type) {
-		case OUTPUT_TYPE_DMX:
-			oled_puts(&oled_info, "DMX");
-			break;
-		case OUTPUT_TYPE_MONITOR:
-			oled_puts(&oled_info, "Mon");
-			break;
-		default:
-			break;
-		}
+	display.Write(1, "WiFi sACN E1.31 ");
 
-		oled_set_cursor(&oled_info, 1, 0);
-		if (wifi_get_opmode() == WIFI_STA) {
-			(void) oled_printf(&oled_info, "S: %s", wifi_get_ssid());
+	switch (tOutputType) {
+	case LIGHTSET_OUTPUT_TYPE_SPI:
+		display.PutString("Pixel");
+		break;
+#ifndef H3
+	case LIGHTSET_OUTPUT_TYPE_MONITOR:
+		display.PutString("Monitor");
+		break;
+#endif
+	default:
+		display.PutString("DMX");
+		break;
+	}
+
+	if (wifi_get_opmode() == WIFI_STA) {
+		display.Printf(2, "S: %s", wifi_get_ssid());
+	} else {
+		display.Printf(2, "AP (%s)\n", wifi_ap_is_open() ? "Open" : "WPA_WPA2_PSK");
+	}
+
+	display.Printf(3, "IP: " IPSTR "", IP2STR(Network::Get()->GetIp()));
+
+	if (nw.IsDhcpKnown()) {
+		if (nw.IsDhcpUsed()) {
+			display.PutString(" D");
 		} else {
-			(void) oled_printf(&oled_info, "AP (%s)\n", wifi_ap_is_open() ? "Open" : "WPA_WPA2_PSK");
+			display.PutString(" S");
 		}
-
-		oled_set_cursor(&oled_info, 2, 0);
-		(void) oled_puts(&oled_info, "CID: ");
-		(void) oled_puts(&oled_info, uuid_str);
-		oled_set_cursor(&oled_info, 4, 0);
-		(void) oled_printf(&oled_info, "U: %d M: %s", bridge.getUniverse(), bridge.getMergeMode() == E131_MERGE_HTP ? "HTP" : "LTP");
-		oled_set_cursor(&oled_info, 5, 0);
-		(void) oled_printf(&oled_info, "M: " IPSTR "", IP2STR(group_ip));
-		oled_set_cursor(&oled_info, 6, 0);
-		(void) oled_printf(&oled_info, "U: " IPSTR "", IP2STR(ip_config.ip.addr));
 	}
 
-	console_status(CONSOLE_GREEN, "Bridge is running");
-	OLED_CONNECTED(oled_connected, oled_status(&oled_info, "Bridge is running"));
+	display.Printf(4, "N: " IPSTR "", IP2STR(Network::Get()->GetNetmask()));
+	display.Printf(5, "U: %d", nUniverse);
+	display.Printf(6, "Active ports: %d", bridge.GetActiveOutputPorts());
 
-	hardware_watchdog_init();
+	console_status(CONSOLE_YELLOW, START_BRIDGE);
+	display.TextStatus(START_BRIDGE);
+
+	bridge.Start();
+
+	console_status(CONSOLE_GREEN, BRIDGE_STARTED);
+	display.TextStatus(BRIDGE_STARTED);
+
+#if defined (ORANGE_PI)
+	while (spiFlashStore.Flash())
+		;
+#endif
+
+	hw.WatchdogInit();
 
 	for (;;) {
-		hardware_watchdog_feed();
+		hw.WatchdogFeed();
 		(void) bridge.Run();
-		led_blink();
+		lb.Run();
 	}
 }
 

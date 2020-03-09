@@ -2,7 +2,7 @@
  * @file midi.h
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,9 @@
 
 #include "midi_interface.h"
 
-#include "util.h"
+#if  ! defined (PACKED)
+#define PACKED __attribute__((packed))
+#endif
 
 #define MIDI_RX_BUFFER_INDEX_ENTRIES			(1 << 6)							///<
 #define MIDI_RX_BUFFER_INDEX_MASK 				(MIDI_RX_BUFFER_INDEX_ENTRIES - 1)	///<
@@ -139,7 +141,8 @@ typedef enum midi_timecode_type {
 	MIDI_TC_TYPE_FILM = 0,
 	MIDI_TC_TYPE_EBU,
 	MIDI_TC_TYPE_DF,
-	MIDI_TC_TYPE_SMPTE
+	MIDI_TC_TYPE_SMPTE,
+	MIDI_TC_TYPE_UNKNOWN = 255
 } _midi_timecode_type;
 
 typedef enum midi_direction {
@@ -148,38 +151,147 @@ typedef enum midi_direction {
 } _midi_direction;
 
 struct _midi_send_tc {
-	uint8_t hour;
-	uint8_t minute;
-	uint8_t second;
-	uint8_t frame;
-	_midi_timecode_type rate;
-} ;
+	uint8_t nFrames;
+	uint8_t nSeconds;
+	uint8_t nMinutes;
+	uint8_t nHours;
+	uint8_t nType;
+}PACKED;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern void midi_init(const _midi_direction);
-extern void midi_set_baudrate(const uint32_t);
-extern const uint32_t midi_get_baudrate(void);
+extern void midi_init(_midi_direction);
+extern _midi_direction midi_get_direction(void);
+extern void midi_set_baudrate(uint32_t);
+extern uint32_t midi_get_baudrate(void);
 extern /*@shared@*/const char *midi_get_interface_description(void);
-extern void midi_set_interface(const _midi_interfaces);
+extern void midi_set_interface(_midi_interfaces);
 
-extern /*@shared@*/struct _midi_message *midi_message_get(void) ASSUME_ALIGNED;
+extern /*@shared@*/struct _midi_message *midi_message_get(void) __attribute__((assume_aligned(4)));
 extern bool midi_read(void);
 extern bool midi_read_channel(uint8_t);
 extern uint8_t midi_get_input_channel(void);
 extern void midi_set_input_channel(uint8_t);
 
 extern _midi_active_sense_state midi_active_get_sense_state(void);
-extern const bool midi_active_get_sense(void);
-extern void midi_active_set_sense(const bool);
+extern bool midi_active_get_sense(void);
+extern void midi_active_set_sense(bool);
 
 extern void midi_send_tc(const struct _midi_send_tc *);
-extern void midi_send_raw(const uint8_t *, const uint16_t);
+extern void midi_send_qf(uint8_t);
+extern void midi_send_raw(const uint8_t *, uint16_t);
+
+extern uint32_t midi_get_updates_per_seconds(void);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+class Midi {
+public:
+	Midi(void);
+	~Midi(void);
+
+	void Init(_midi_direction tMidiDirection) {
+		midi_init(tMidiDirection);
+	}
+
+	void Run(void);
+
+	_midi_direction GetDirection(void) {
+		return midi_get_direction();
+	}
+
+	void SetBaudrate(uint32_t nBaudrate) {
+		midi_set_baudrate(nBaudrate);
+	}
+
+	uint32_t GetBaudrate(void) {
+		return midi_get_baudrate();
+	}
+
+	void SetActiveSense(bool bActiveSense = true) {
+		midi_active_set_sense(bActiveSense);
+	}
+
+	bool GetActiveSense(void) {
+		return midi_active_get_sense();
+	}
+
+	uint32_t GetUpdatesPerSeconde(void) {
+		return midi_get_updates_per_seconds();
+	}
+
+	void SetChannel(uint8_t nChannel) {
+		midi_set_input_channel(nChannel);
+	}
+
+	uint8_t GetChannel(void) {
+		return midi_get_input_channel();
+	}
+
+	_midi_active_sense_state GetActiveSenseState(void) {
+		return midi_active_get_sense_state();
+	}
+
+	const char* GetInterfaceDescription(void) {
+		return midi_get_interface_description();
+	}
+
+	void SendTimeCode(const struct _midi_send_tc *tTimeCode) {
+		midi_send_tc(tTimeCode);
+	}
+
+	void SendQf(uint8_t nData) {
+		midi_send_qf(nData);
+	}
+
+	void SendQf(const struct _midi_send_tc *tMidiTimeCode, uint32_t& nMidiQuarterFramePiece);
+
+	void SendRaw(const uint8_t *pBuffer, uint16_t nLength) {
+		midi_send_raw(pBuffer, nLength);
+	}
+
+	bool Read(void) {
+		return midi_read();
+	}
+
+	bool Read(uint8_t nChannel) {
+		return midi_read_channel(nChannel);
+	}
+
+	uint32_t GetMessageTimeStamp(void) {
+		return m_pMessage->timestamp;
+	}
+
+	uint8_t GetMessageType(void) {
+		return m_pMessage->type;
+	}
+
+	void GetMessageData(uint8_t &nData1, uint8_t &nData2) {
+		nData1 = m_pMessage->data1;
+		nData2 = m_pMessage->data2;
+	}
+
+	uint8_t* GetSystemExclusive(uint8_t &nLength) {
+		nLength = m_pMessage->bytes_count;
+		return m_pMessage->system_exclusive;
+	}
+
+	static Midi* Get(void) {
+		return s_pThis;
+	}
+
+	void Print(void);
+
+private:
+	struct _midi_message *m_pMessage;
+
+	static Midi *s_pThis;
+};
 #endif
 
 #endif /* MIDI_H_ */

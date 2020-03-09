@@ -1,102 +1,101 @@
-ARMGNU ?= arm-none-eabi
+PREFIX ?= arm-none-eabi-
 
-INCLUDES := -I./include
-INCLUDES += $(addprefix -I,$(EXTRA_INCLUDES))
+CC	= $(PREFIX)gcc
+CPP	= $(PREFIX)g++
+AS	= $(CC)
+LD	= $(PREFIX)ld
+AR	= $(PREFIX)ar
 
-DEFINES := $(addprefix -D,$(DEFINES))
+SRCDIR = src src/rpi $(EXTRA_SRCDIR)
 
-COPS_COMMON = -DBARE_METAL $(DEFINES) -DNDEBUG
-COPS_COMMON += $(INCLUDES)
-COPS_COMMON += -Wall -Werror -O3 -nostartfiles -ffreestanding -mhard-float -mfloat-abi=hard -fno-exceptions -fno-unwind-tables #-fstack-usage
+INCLUDES:=-I./include -I../include -I../lib-hal/include -I../lib-bcm2835/include -I../lib-arm/include -I../lib-debug/include 
+INCLUDES+=$(addprefix -I,$(EXTRA_INCLUDES))
 
-COPS = -mfpu=vfp -march=armv6zk -mtune=arm1176jzf-s -mcpu=arm1176jzf-s
-COPS += -DRPI1
-COPS += $(COPS_COMMON)
+DEFINES:=$(addprefix -D,$(DEFINES))
 
-COPS7 = -mfpu=vfpv4 -march=armv7-a -mtune=cortex-a7 # NEON is not enabled in vectors.s
-COPS7 += -DRPI2
-COPS7 += $(COPS_COMMON)
+COPS_COMMON=-DBARE_METAL -DSD_WRITE_SUPPORT $(DEFINES) $(INCLUDES)
+COPS_COMMON+=-Wall -Werror -O2 -nostartfiles -ffreestanding -nostdinc -nostdlib -mhard-float -mfloat-abi=hard -fno-exceptions -fno-unwind-tables -fprefetch-loop-arrays #-fstack-usage
 
-COPS8 = -mfpu=fp-armv8 -march=armv8-a -mtune=cortex-a53 # NEON is not enabled in vectors.s
-COPS8 += -DRPI3
-COPS8 += $(COPS_COMMON)
+COPS=-mfpu=vfp -march=armv6zk -mtune=arm1176jzf-s -mcpu=arm1176jzf-s
+COPS+=-DRPI1
+COPS+=$(COPS_COMMON)
 
-SOURCE = ./src
+COPS7=-mfpu=neon-vfpv4 -march=armv7-a -mtune=cortex-a7 
+COPS7+=-DRPI2
+COPS7+=$(COPS_COMMON)
 
-CURR_DIR := $(notdir $(patsubst %/,%,$(CURDIR)))
-LIB_NAME := $(patsubst lib-%,%,$(CURR_DIR))
+CURR_DIR:=$(notdir $(patsubst %/,%,$(CURDIR)))
+LIB_NAME:=$(patsubst lib-%,%,$(CURR_DIR))
 
 BUILD = build/
 BUILD7 = build7/
-BUILD8 = build8/
 
-OBJECTS := $(patsubst $(SOURCE)/%.c,$(BUILD)%.o,$(wildcard $(SOURCE)/*.c)) $(patsubst $(SOURCE)/%.cpp,$(BUILD)%.o,$(wildcard $(SOURCE)/*.cpp)) $(patsubst $(SOURCE)/%.S,$(BUILD)%.o,$(wildcard $(SOURCE)/*.S))
-OBJECTS7 := $(patsubst $(SOURCE)/%.c,$(BUILD7)%.o,$(wildcard $(SOURCE)/*.c)) $(patsubst $(SOURCE)/%.cpp,$(BUILD7)%.o,$(wildcard $(SOURCE)/*.cpp)) $(patsubst $(SOURCE)/%.S,$(BUILD7)%.o,$(wildcard $(SOURCE)/*.S))
-OBJECTS8 := $(patsubst $(SOURCE)/%.c,$(BUILD8)%.o,$(wildcard $(SOURCE)/*.c)) $(patsubst $(SOURCE)/%.cpp,$(BUILD8)%.o,$(wildcard $(SOURCE)/*.cpp)) $(patsubst $(SOURCE)/%.S,$(BUILD8)%.o,$(wildcard $(SOURCE)/*.S))
+BUILD_DIRS:=$(addprefix build/,$(SRCDIR))
+BUILD7_DIRS:=$(addprefix build7/,$(SRCDIR))
+
+C_OBJECTS=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.c,$(BUILD)$(sdir)/%.o,$(wildcard $(sdir)/*.c)))
+CPP_OBJECTS=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.cpp,$(BUILD)$(sdir)/%.o,$(wildcard $(sdir)/*.cpp)))
+ASM_OBJECTS=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.S,$(BUILD)$(sdir)/%.o,$(wildcard $(sdir)/*.S)))
+
+C_OBJECTS7=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.c,$(BUILD7)$(sdir)/%.o,$(wildcard $(sdir)/*.c)))
+CPP_OBJECTS7=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.cpp,$(BUILD7)$(sdir)/%.o,$(wildcard $(sdir)/*.cpp)))
+ASM_OBJECTS7=$(foreach sdir,$(SRCDIR),$(patsubst $(sdir)/%.S,$(BUILD7)$(sdir)/%.o,$(wildcard $(sdir)/*.S)))
+
+OBJECTS:=$(ASM_OBJECTS) $(C_OBJECTS) $(CPP_OBJECTS)
+OBJECTS7:=$(ASM_OBJECTS7) $(C_OBJECTS7) $(CPP_OBJECTS7)
 
 TARGET = lib/lib$(LIB_NAME).a 
 TARGET7 = lib7/lib$(LIB_NAME).a
-TARGET8 = lib8/lib$(LIB_NAME).a
 
 LIST = lib.list
 LIST7 = lib7.list
-LIST8 = lib8.list
 
-all : builddirs $(TARGET) $(TARGET7) # $(TARGET8)
+define compile-objects6
+$(BUILD)$1/%.o: $1/%.c
+	$(CC) $(COPS) -c $$< -o $$@
+	
+$(BUILD)$1/%.o: $1/%.cpp
+	$(CPP) $(COPS) -fno-rtti -std=c++11 -nostdinc++ -c $$< -o $$@
+	
+$(BUILD)$1/%.o: $1/%.S
+	$(CC) $(COPS) -D__ASSEMBLY__ -c $$< -o $$@	
+endef
+
+define compile-objects7
+$(BUILD7)$1/%.o: $1/%.c
+	$(CC) $(COPS7) -c $$< -o $$@
+	
+$(BUILD7)$1/%.o: $1/%.cpp
+	$(CPP) $(COPS7) -fno-rtti -std=c++11 -nostdinc++ -c $$< -o $$@	
+	
+$(BUILD7)$1/%.o: $1/%.S	
+	$(CC) $(COPS7) -D__ASSEMBLY__ -c $$< -o $$@		
+endef
+
+all : builddirs $(TARGET) $(TARGET7)
 
 .PHONY: clean builddirs
 
 builddirs:
-	@mkdir -p build lib build7 lib7 # build8 lib8
+	mkdir -p $(BUILD_DIRS) $(BUILD7_DIRS)
+	mkdir -p lib lib7
 
 clean :
-	rm -rf $(BUILD) $(BUILD7) $(BUILD8)
-	rm -f $(TARGET) $(TARGET7) $(TARGET8)	
-	rm -f $(LIST) $(LIST7) $(LIST8)	
+	rm -rf $(BUILD) $(BUILD7)
+	rm -rf lib/ lib7/	
 
 # ARM v6
-
-$(BUILD)%.o: $(SOURCE)/%.c
-	$(ARMGNU)-gcc $(COPS) $< -c -o $@
 	
-$(BUILD)%.o: $(SOURCE)/%.cpp
-	$(ARMGNU)-g++ $(COPS) -fno-rtti -std=c++11 $< -c -o $@		
-	
-$(BUILD)%.o: $(SOURCE)/%.S
-	$(ARMGNU)-gcc $(COPS) -D__ASSEMBLY__ $< -c -o $@		
-
 $(TARGET): Makefile $(OBJECTS)
-	$(ARMGNU)-ar -r $(TARGET) $(OBJECTS)
-	$(ARMGNU)-objdump -D $(TARGET) | $(ARMGNU)-c++filt > $(LIST)
+	$(AR) -r $(TARGET) $(OBJECTS)
+	$(PREFIX)objdump -D $(TARGET) | $(PREFIX)c++filt > lib/$(LIST)
 	
-# ARM v7	
-	
-$(BUILD7)%.o: $(SOURCE)/%.c
-	$(ARMGNU)-gcc $(COPS7) $< -c -o $@
-	
-$(BUILD7)%.o: $(SOURCE)/%.cpp
-	$(ARMGNU)-g++ $(COPS7) -fno-rtti -std=c++11 $< -c -o $@		
-	
-$(BUILD7)%.o: $(SOURCE)/%.S
-	$(ARMGNU)-gcc $(COPS7) -D__ASSEMBLY__ $< -c -o $@		
+# ARM v7		
 
 $(TARGET7): Makefile $(OBJECTS7)
-	$(ARMGNU)-ar -r $(TARGET7) $(OBJECTS7)
-	$(ARMGNU)-objdump -D $(TARGET7) | $(ARMGNU)-c++filt > $(LIST7)
+	$(AR) -r $(TARGET7) $(OBJECTS7)
+	$(PREFIX)objdump -D $(TARGET7) | $(PREFIX)c++filt > lib7/$(LIST7)
 	
-# ARM v8	
-
-$(BUILD8)%.o: $(SOURCE)/%.c
-	$(ARMGNU)-gcc $(COPS8) $< -c -o $@
+$(foreach bdir,$(SRCDIR),$(eval $(call compile-objects6,$(bdir))))
 	
-$(BUILD8)%.o: $(SOURCE)/%.cpp
-	$(ARMGNU)-g++ $(COPS8) -fno-rtti -std=c++11 $< -c -o $@	
-	
-$(BUILD8)%.o: $(SOURCE)/%.S
-	$(ARMGNU)-gcc $(COPS) -D__ASSEMBLY__ $< -c -o $@		
-
-$(TARGET8): Makefile $(OBJECTS8)
-	$(ARMGNU)-ar -r $(TARGET8) $(OBJECTS8)
-	$(ARMGNU)-objdump -D $(TARGET8) | $(ARMGNU)-c++filt > $(LIST8)
-
-	
+$(foreach bdir,$(SRCDIR),$(eval $(call compile-objects7,$(bdir))))	

@@ -2,7 +2,7 @@
  * @file wifi_network_params.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,10 +25,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "read_config_file.h"
 #include "sscan.h"
-#include "util.h"
+
+#ifndef ALIGNED
+ #define ALIGNED __attribute__ ((aligned (4)))
+#endif
 
 static const char PARAMS_FILE_NAME[] ALIGNED = "network.txt";			///< Parameters file name
 static const char PARAMS_USE_DHCP[] ALIGNED = "use_dhcp";				///<
@@ -39,111 +43,84 @@ static const char PARAMS_NAME_SERVER[] ALIGNED = "name_server";			///<
 static const char PARAMS_SSID[] ALIGNED = "ssid";						///<
 static const char PARAMS_PASSWORD[] ALIGNED = "password";				///<
 
-static bool network_params_use_dhcp = true;								///<
-static uint32_t network_params_ip_address = (uint32_t) 0;				///<
-static uint32_t network_params_net_mask = (uint32_t) 0;					///<
-static uint32_t network_params_default_gateway = (uint32_t) 0;			///<
-static uint32_t network_params_name_server = (uint32_t) 0;				///<
-static char network_params_ssid[34] ALIGNED;							///<
-static char network_params_password[34] ALIGNED;						///<
+static bool network_params_use_dhcp = true;
+static uint32_t network_params_ip_address = 0;
+static uint32_t network_params_net_mask = 0;
+static uint32_t network_params_default_gateway = 0;
+static uint32_t network_params_name_server = 0;
+static char network_params_ssid[34] ALIGNED;
+static char network_params_password[34] ALIGNED;
 
-/**
- *
- * @return
- */
-const bool network_params_is_use_dhcp(void) {
+bool network_params_is_use_dhcp(void) {
 	return network_params_use_dhcp;
 }
 
-/**
- *
- * @return
- */
-const uint32_t network_params_get_ip_address(void) {
+uint32_t network_params_get_ip_address(void) {
 	return network_params_ip_address;
 }
 
-/**
- *
- * @return
- */
-const uint32_t network_params_get_net_mask(void) {
+uint32_t network_params_get_net_mask(void) {
 	return network_params_net_mask;
 }
 
-/**
- *
- * @return
- */
-const uint32_t network_params_get_default_gateway(void) {
+uint32_t network_params_get_default_gateway(void) {
 	return network_params_default_gateway;
 }
 
-/**
- *
- * @return
- */
-const uint32_t network_params_get_name_server(void) {
+uint32_t network_params_get_name_server(void) {
 	return network_params_name_server;
 }
 
-/**
- *
- * @return
- */
 const char *network_params_get_ssid(void) {
 	return network_params_ssid;
 }
 
-/**
- *
- * @return
- */
 const char *network_params_get_password(void) {
 	return network_params_password;
 }
 
-
-/**
- *
- * @param line
- */
 static void process_line_read(const char *line) {
 	uint8_t len = 32;
 	uint8_t value8;
 	uint32_t value32;
 
-	if (sscan_char_p(line, PARAMS_SSID, network_params_ssid, &len) == 2) {
+	if (sscan_char_p(line, PARAMS_SSID, network_params_ssid, &len) == SSCAN_OK) {
 		return;
 	}
 
 	len = 32;
-	if (sscan_char_p(line, PARAMS_PASSWORD, network_params_password, &len) == 2) {
+	if (sscan_char_p(line, PARAMS_PASSWORD, network_params_password, &len) == SSCAN_OK) {
 		return;
 	}
 
-	if (sscan_uint8_t(line, PARAMS_USE_DHCP, &value8) == 2) {
+	if (sscan_uint8_t(line, PARAMS_USE_DHCP, &value8) == SSCAN_OK) {
 		if (value8 == 0) {
 			network_params_use_dhcp = false;
 		}
 		return;
 	}
 
-	if (sscan_ip_address(line, PARAMS_IP_ADDRESS, &value32) == 1) {
+	if (sscan_ip_address(line, PARAMS_IP_ADDRESS, &value32) == SSCAN_OK) {
 		network_params_ip_address = value32;
-	} else if (sscan_ip_address(line, PARAMS_NET_MASK, &value32) == 1) {
+		return;
+	}
+
+	if (sscan_ip_address(line, PARAMS_NET_MASK, &value32) == SSCAN_OK) {
 		network_params_net_mask = value32;
-	} else if (sscan_ip_address(line, PARAMS_DEFAULT_GATEWAY, &value32) == 1) {
+		return;
+	}
+
+	if (sscan_ip_address(line, PARAMS_DEFAULT_GATEWAY, &value32) == SSCAN_OK) {
 		network_params_default_gateway = value32;
-	} else if (sscan_ip_address(line, PARAMS_NAME_SERVER, &value32) == 1) {
+		return;
+	}
+
+	if (sscan_ip_address(line, PARAMS_NAME_SERVER, &value32) == SSCAN_OK) {
 		network_params_name_server = value32;
 	}
 }
 
-/**
- *
- */
-const bool network_params_init(void) {
+bool network_params_init(void) {
 	uint32_t i;
 
 	for (i = 0; i < sizeof(network_params_ssid) / sizeof(char); i++) {

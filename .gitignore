@@ -6,6 +6,7 @@ lib*.a
 # Executables
 *.out
 *.a
+*.exe
 
 # Others 
 *.bak
@@ -13,5 +14,78 @@ lib*.a
 *.lst
 *.map
 *.elf
-Splint*.prefs
+*.prefs
+*.class
 
+*.txt
+*._txt
+*.txt_
+*.uid
+
+# Linux 
+.nfs*
+.nfs.*
+
+# Apple
+.DS*
+._.DS*
+._*
+
+# Eclipse
+.tracecompass
+
+# H2+/H3 binaries 
+uImage
+*.uImage
+*.uImage.gz
+orangepi*.img
+orangepi*.img.gz
+
+# Broadcom binaries
+kernel.img
+kernel7.img
+
+# examples binaries
+# lib-i2c
+i2cdetect
+# lib-display
+detect
+lcd1602
+lcd2004
+oled128x32
+ssd1306
+# lib-l6470
+get_set_param_test
+get_temp
+input_output
+limit_switch
+precise_move
+simple_move
+SparkFunGetSetParamTest
+#lib-rdmnet
+dummy_device
+# lib-pca9685
+servo
+simple
+# lib-tlc59711
+pwmled
+do-tftp.sh
+linux_artnet
+linux_e131
+linux_osc
+artnet.txt
+e131.txt
+osc.txt
+*.cpp_
+*.h_
+*.list_
+sofware_version_id.h
+*/sofware_version_id.h
+*/include/sofware_version_id.h
+lib-rdmnet/example/sofware_version_id.h
+lib-rdmnet/example/sofware_version_id.h
+lib-rdmnet/example/sofware_version_id.h
+rpi_dmx_usb_pro/include/device_software_version.h
+lib-bob/examples/si5351a
+*.gz
+linux_rpi_artipprog/linux_rpi_artipprog

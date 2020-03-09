@@ -6,7 +6,7 @@
  *
  * https://developer.mbed.org/components/SC16IS750-I2C-or-SPI-to-UART-bridge/
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,29 +30,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "sc16is7x0.h"
+#include "bob.h"
 
-#include "bcm2835_spi.h"
-#include "device_info.h"
+#include "sc16is7x0.h"
 
 static char buffer_tx[SC16IS7X0_FIFO_TX + 1] __attribute__((aligned(4)));
 
-/**
- *
- * @param device_info
- */
 inline static void sc16is740_setup(const device_info_t *device_info) {
-	bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-	bcm2835_spi_chipSelect(device_info->chip_select);
+	FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+	FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
 }
 
-/**
- *
- * @param device_info
- * @param reg
- * @return
- */
-uint8_t sc16is740_reg_read(const device_info_t *device_info, const uint8_t reg) {
+uint8_t sc16is740_reg_read(const device_info_t *device_info, uint8_t reg) {
 	char spiData[2];
 	const char SPI_DUMMY_CHAR = (char) 0xFF;	///< Used to flush slave's shift register
 
@@ -60,31 +49,20 @@ uint8_t sc16is740_reg_read(const device_info_t *device_info, const uint8_t reg) 
 	spiData[1] = SPI_DUMMY_CHAR;
 
 	sc16is740_setup(device_info);
-	bcm2835_spi_transfern(spiData, 2);
+	FUNC_PREFIX(spi_transfern(spiData, 2));
 
 	return (uint8_t) spiData[1];
 }
 
-/**
- *
- * @param device_info
- * @param reg
- * @param value
- */
-void sc16is740_reg_write(const device_info_t *device_info, const uint8_t reg, const uint8_t value) {
+void sc16is740_reg_write(const device_info_t *device_info, uint8_t reg, uint8_t value) {
 	char spiData[2];
 	spiData[0] = (char) (reg << 3);
 	spiData[1] = (char) value;
 
 	sc16is740_setup(device_info);
-	bcm2835_spi_writenb(spiData, 2);
+	FUNC_PREFIX(spi_writenb(spiData, 2));
 }
 
-/**
- *
- * @param device_info
- * @return
- */
 bool sc16is740_is_readable(const device_info_t *device_info) {
 	if ((sc16is740_reg_read(device_info, SC16IS7X0_LSR) & LSR_DR) == LSR_DR) {
 		return true;
@@ -93,10 +71,6 @@ bool sc16is740_is_readable(const device_info_t *device_info) {
 	}
 }
 
-/**
- *
- * @return
- */
 bool sc16is740_is_writable(const device_info_t *device_info) {
 	if ((sc16is740_reg_read(device_info, SC16IS7X0_LSR) & LSR_THRE) == LSR_THRE) {
 		return true;
@@ -105,11 +79,6 @@ bool sc16is740_is_writable(const device_info_t *device_info) {
 	}
 }
 
-/**
- *
- * @param device_info
- * @return
- */
 int sc16is740_getc(const device_info_t *device_info) {
 	  if (!sc16is740_is_readable(device_info)) {
 	    return -1;
@@ -118,13 +87,7 @@ int sc16is740_getc(const device_info_t *device_info) {
 	  return (int) sc16is740_reg_read(device_info, SC16IS7X0_RHR);
 }
 
-/**
- *
- * @param device_info
- * @param value
- * @return
- */
-int sc16is740_putc(const device_info_t *device_info, const int value) {
+int sc16is740_putc(const device_info_t *device_info, int value) {
 	while (sc16is740_reg_read(device_info, SC16IS7X0_TXLVL) == 0) {
 
 	}
@@ -134,10 +97,6 @@ int sc16is740_putc(const device_info_t *device_info, const int value) {
 	return value;
 }
 
-/**
- *
- * @return
- */
 bool sc16is740_is_connected(const device_info_t *device_info) {
 	const uint8_t TEST_CHARACTER = (uint8_t) 'A';
 
@@ -146,12 +105,6 @@ bool sc16is740_is_connected(const device_info_t *device_info) {
 	return (sc16is740_reg_read(device_info, SC16IS7X0_SPR) == TEST_CHARACTER);
 }
 
-/**
- *
- * @param buffer
- * @param count
- * @return
- */
 int sc16is740_read(const device_info_t *device_info, void *buffer, unsigned count) {
 	uint8_t *p = (uint8_t *) buffer;
 
@@ -171,12 +124,6 @@ int sc16is740_read(const device_info_t *device_info, void *buffer, unsigned coun
 	return result;
 }
 
-/**
- *
- * @param buffer
- * @param count
- * @return
- */
 int sc16is740_write(const device_info_t *device_info, const void *buffer, unsigned count) {
 	int result = 0;
 	uint8_t fifo_space;
@@ -199,7 +146,7 @@ int sc16is740_write(const device_info_t *device_info, const void *buffer, unsign
 		}
 
 		sc16is740_setup(device_info);
-		bcm2835_spi_writenb(buffer_tx, fifo_space + 1);
+		FUNC_PREFIX(spi_writenb(buffer_tx, fifo_space + 1));
 
 		count -= (unsigned) fifo_space;
 
@@ -208,12 +155,7 @@ int sc16is740_write(const device_info_t *device_info, const void *buffer, unsign
 	return result;
 }
 
-/**
- *
- * @param device_info
- * @param baudrate
- */
-void sc16is740_set_baud(const device_info_t *device_info, const int baudrate) {
+void sc16is740_set_baud(const device_info_t *device_info, int baudrate) {
 	unsigned long divisor = (unsigned long) SC16IS7X0_BAUDRATE_DIVISOR(baudrate);
 	uint8_t lcr;
 
@@ -225,12 +167,6 @@ void sc16is740_set_baud(const device_info_t *device_info, const int baudrate) {
 	sc16is740_reg_write(device_info, SC16IS7X0_LCR, lcr);
 }
 
-/** Set the transmission format used by the serial port.
-  *   @param bits      The number of bits in a word (5-8; default = 8)
-  *   @param parity    The parity used (\ref_serial_parity)
-  *   @param stop_bits The number of stop bits (1 or 2; default = 1)
-  *   @return none
-  */
 void sc16is740_set_format(const device_info_t *device_info, int bits, _serial_parity parity,  int stop_bits) {
 	uint8_t lcr = 0x00;
 
@@ -285,22 +221,15 @@ void sc16is740_set_format(const device_info_t *device_info, int bits, _serial_pa
 	sc16is740_reg_write(device_info, SC16IS7X0_LCR, lcr);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
 void sc16is740_start(device_info_t *device_info) {
 
-	bcm2835_spi_begin();
+	FUNC_PREFIX(spi_begin());;
 
 	if (device_info->speed_hz == (uint32_t) 0) {
 		device_info->speed_hz = (uint32_t) SC16IS7X0_SPI_SPEED_DEFAULT_HZ;
 	} else if (device_info->speed_hz > (uint32_t) SC16IS7X0_SPI_SPEED_MAX_HZ) {
 		device_info->speed_hz = (uint32_t) SC16IS7X0_SPI_SPEED_MAX_HZ;
 	}
-
-	device_info->internal.clk_div = (uint16_t)((uint32_t) BCM2835_CORE_CLK_HZ / device_info->speed_hz);
 
 	sc16is740_set_format(device_info, 8, SERIAL_PARITY_NONE, 1);
 	sc16is740_set_baud(device_info, SC16IS7X0_DEFAULT_BAUDRATE);

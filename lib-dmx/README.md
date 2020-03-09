@@ -1,4 +1,11 @@
-## Raspberry Pi library for the DMX512 / RDM implementation ##
+# Library DMX512 / RDM
+## Open Source Baremetal C/C++
 
-[http://www.raspberrypi-dmx.org](http://www.raspberrypi-dmx.org)
+Supported boards:
+
+* Raspberry Pi 
+* Orange Pi Zero
+* Orange Pi One
+
+[http://www.orangepi-dmx.org](http://www.orangepi-dmx.org)
 

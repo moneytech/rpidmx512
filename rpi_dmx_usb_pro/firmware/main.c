@@ -2,7 +2,7 @@
  * @file main.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,28 +23,33 @@
  * THE SOFTWARE.
  */
 
-#include <led.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
-#include "hardware.h"
-#include "usb.h"
-#include "util.h"
+#include "c/hardware.h"
+#include "c/led.h"
 
 #include "monitor.h"
-#include "oled.h"
 
 #include "dmx.h"
+#include "rdm.h"
 
-#include "rdm_monitor.h"
+#include "usb.h"
+
 #include "rdm_device_info.h"
-#include "rdm_device_const.h"
 
-#include "widget_params.h"
 #include "widget.h"
+#include "widget_monitor.h"
+#include "widget_params.h"
 
-void __attribute__((interrupt("FIQ"))) c_fiq_handler(void) {}
-void __attribute__((interrupt("IRQ"))) c_irq_handler(void) {}
+#include "device_software_version.h"
+
+#ifndef ALIGNED
+ #define ALIGNED __attribute__ ((aligned (4)))
+#endif
+
+#include "oled.h"
 
 static char widget_mode_names[4][12] ALIGNED = {"DMX_RDM", "DMX", "RDM" , "RDM_SNIFFER" };
 
@@ -68,11 +73,7 @@ struct _event {
 
 static uint32_t events_elapsed_time[sizeof(events) / sizeof(events[0])];
 
-/**
- * @ingroup main
- *
- */
-static void events_init() {
+static void events_init(void) {
 	size_t i;
 	const uint32_t mircos_now = hardware_micros();
 	for (i = 0; i < (sizeof(events) / sizeof(events[0])); i++) {
@@ -80,11 +81,7 @@ static void events_init() {
 	}
 }
 
-/**
- * @ingroup main
- *
- */
-inline static void events_check() {
+inline static void events_check(void) {
 	size_t i;
 	const uint32_t micros_now = hardware_micros();
 	for (i = 0; i < (sizeof(events) / sizeof(events[0])); i++) {
@@ -96,47 +93,42 @@ inline static void events_check() {
 	}
 }
 
-/**
- * @ingroup main
- *
- * @return
- */
 int notmain(void) {
-	oled_info_t oled_info  = { OLED_128x64_SPI_CS2_DEFAULT };
-	bool oled_connected = false;
-	int i = 0;
+	int i;
 	_widget_mode widget_mode;
 	const uint8_t *uid_device;
+	struct _rdm_device_info_data rdm_device_info_label;
 
-	oled_connected = oled_start(&oled_info);
-	monitor_set_oled(oled_connected ? &oled_info : NULL);
+	oled_info_t oled_info  = { OLED_128x64_SPI_CS2_DEFAULT };
+	bool oled_connected = oled_start(&oled_info);
 
 	usb_init();
 
 	dmx_init();
-	dmx_set_port_direction(DMX_PORT_DIRECTION_INP, true);
+	dmx_set_port_direction(DMX_PORT_DIRECTION_INP, false);
 
 	widget_params_init();
 	rdm_device_info_init();
 
 	widget_mode = widget_get_mode();
+
 	uid_device = (const uint8_t *)rdm_device_info_get_uuid();
+	rdm_device_info_get_label(RDM_ROOT_DEVICE, &rdm_device_info_label);
 
 	printf("[V%s] %s Compiled on %s at %s\n", DEVICE_SOFTWARE_VERSION, hardware_board_get_model(), __DATE__, __TIME__);
 	printf("RDM Controller with USB [Compatible with Enttec USB Pro protocol], Widget mode : %d (%s)\n", widget_mode, widget_mode_names[widget_mode]);
-	printf("Device UUID : %.2x%.2x:%.2x%.2x%.2x%.2x, Label : ", uid_device[0], uid_device[1], uid_device[2], uid_device[3], uid_device[4], uid_device[5]);
-	monitor_print_root_device_label();
+	printf("Device UUID : %.2x%.2x:%.2x%.2x%.2x%.2x, ", uid_device[0], uid_device[1], uid_device[2], uid_device[3], uid_device[4], uid_device[5]);
+	printf("Label : %.*s\n", (int) rdm_device_info_label.length, (const char *)rdm_device_info_label.data);
 
 	if (oled_connected) {
 		oled_set_cursor(&oled_info,0,0);
-		(void) oled_printf(&oled_info, "[V%s] RDM Controller", DEVICE_SOFTWARE_VERSION);
+		oled_printf(&oled_info, "[V%s] RDM Controller", DEVICE_SOFTWARE_VERSION);
 		oled_set_cursor(&oled_info,1,0);
-		(void) oled_printf(&oled_info,"UUID: %.2x%.2x:%.2x%.2x%.2x%.2x", uid_device[0], uid_device[1], uid_device[2], uid_device[3], uid_device[4], uid_device[5]);
+		oled_printf(&oled_info,"UUID: %.2x%.2x:%.2x%.2x%.2x%.2x", uid_device[0], uid_device[1], uid_device[2], uid_device[3], uid_device[4], uid_device[5]);
 		oled_set_cursor(&oled_info,2,0);
-		oled_puts(&oled_info, "L:");
-		// 2 and 3 = Device label
+		oled_printf(&oled_info,"L: %.*s", (int) rdm_device_info_label.length, (const char *)rdm_device_info_label.data);
 		oled_set_cursor(&oled_info,5,0);
-		(void) oled_printf(&oled_info,"Mode: %d (%s)", widget_mode, widget_mode_names[widget_mode]);
+		oled_printf(&oled_info,"Mode: %d (%s)", widget_mode, widget_mode_names[widget_mode]);
 	}
 
 	hardware_watchdog_init();
@@ -149,6 +141,7 @@ int notmain(void) {
 
 	for (;;) {
 		hardware_watchdog_feed();
+
 		for (i = 0; i < sizeof(poll_table) / sizeof(poll_table[0]); i++) {
 			poll_table[i].f();
 		}

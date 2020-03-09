@@ -2,7 +2,7 @@
  * @file printf.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <ctype.h>
+#include <string.h>
 #include <limits.h>
 
 #include "console.h"
-#include "util.h"
 
 struct context {
 	int flag;
@@ -49,13 +50,9 @@ enum {
 	FLAG_LEFT_JUSTIFIED =	(1 << 6 )
 };
 
-#if defined (ARM_ALLOW_MULTI_CORE)
-static volatile int lock = 0;
-#endif
-
 /*@null@*/static char *outptr = NULL;
 
-inline static void _xputch(/*@out@*/struct context *ctx, const int c) {
+inline static void _xputch(/*@out@*/struct context *ctx, int c) {
 	ctx->total++;
 
 	if (outptr != NULL) {
@@ -79,7 +76,7 @@ static const int _pow10(int n) {
 	return r;
 }
 
-static int _itostr(int x, /*@out@*/char *s, const int d) {
+static int _itostr(int x, /*@out@*/char *s, int d) {
 	char buffer[64];
 	char *p = buffer + (sizeof(buffer) / sizeof(buffer[0])) - 1;
 	char *o = p;
@@ -158,7 +155,7 @@ static void _round_float(/*@out@*/char *dest, int *size) {
 			} else {
 				w++;
 				q++;
-				(void *) memmove(w + 1, w, (size_t) (q - w));
+				memmove(w + 1, w, (size_t) (q - w));
 				*w = '1';
 				i++;
 			}
@@ -227,12 +224,12 @@ static void _format_hex(struct context *ctx, unsigned int arg) {
 	}
 }
 
-static void _format_int(struct context *ctx, long int arg) {
-	char buffer[64] __attribute__((aligned(4)));
+static void _format_int(struct context *ctx, long unsigned arg) {
+	char buffer[64];
 	char *p = buffer + (sizeof(buffer) / sizeof(buffer[0])) - 1;
 	char *o = p;
 	int i;
-
+	
 	if (arg == 0) {
 		*p = '0';
 		p--;
@@ -359,12 +356,6 @@ static void _format_pointer(struct context *ctx, unsigned int arg) {
 	_format_hex(ctx, arg);
 }
 
-/**
- *
- * @param fmt
- * @param va
- * @return
- */
 static int _vprintf(const int size, const char *fmt, va_list va) {
 	struct context ctx;
 	float f;
@@ -374,7 +365,7 @@ static int _vprintf(const int size, const char *fmt, va_list va) {
 	ctx.total = 0;
 	ctx.capacity = size;
 
-	while (*fmt != (char)0) {
+	while (*fmt != (char) 0) {
 
 		if (*fmt != '%') {
 			_xputch(&ctx, (int )*fmt++);
@@ -406,9 +397,17 @@ static int _vprintf(const int size, const char *fmt, va_list va) {
 
 		if (*fmt == '.') {
 			fmt++;
-			while (isdigit((int) *fmt) != 0) {
-				ctx.prec = ctx.prec * 10 + (int) (*fmt - '0');
+			if (*fmt == '*') {
 				fmt++;
+				ctx.prec = (int) va_arg(va, int);
+				if (ctx.prec < 0) {
+					ctx.prec = -ctx.prec;
+				}
+			} else {
+				while (isdigit((int) *fmt) != 0) {
+					ctx.prec = ctx.prec * 10 + (int) (*fmt - '0');
+					fmt++;
+				}
 			}
 			ctx.flag |= FLAG_PRECISION;
 		}
@@ -427,11 +426,11 @@ static int _vprintf(const int size, const char *fmt, va_list va) {
 			/* no break */
 		case 'i':
 			l = ((ctx.flag & FLAG_LONG) != 0) ? va_arg(va, long int) : (long int) va_arg(va, int);
-			if (l < 0) {
+			if ((int64_t) l < 0) {
 				ctx.flag |= FLAG_NEGATIVE;
 				l = -l;
 			}
-			_format_int(&ctx, l);
+			_format_int(&ctx, (unsigned int) l);
 			break;
 		case 'f':
 			f = (float) va_arg(va, double);
@@ -444,6 +443,10 @@ static int _vprintf(const int size, const char *fmt, va_list va) {
 			s = va_arg(va, const char *);
 			_format_string(&ctx, s);
 			break;
+		case 'u':
+			l = va_arg(va, unsigned int);
+			_format_int(&ctx, (unsigned int) l);
+			break;
 		case 'X':
 			ctx.flag |= FLAG_UPPERCASE;
 			/*@fallthrough@*/
@@ -455,25 +458,16 @@ static int _vprintf(const int size, const char *fmt, va_list va) {
 			_xputch(&ctx, (int) *fmt);
 			continue;
 		}
-
+		
 		fmt++;
 	}
 
 	return ctx.total;
 }
 
-/**
- *
- * @param fmt
- * @return
- */
 int printf(const char* fmt, ...) {
 	int i;
 	va_list arp;
-
-#if defined (ARM_ALLOW_MULTI_CORE)
-	while (__sync_lock_test_and_set(&lock, 1) == 1);
-#endif
 
 	va_start(arp, fmt);
 
@@ -481,19 +475,9 @@ int printf(const char* fmt, ...) {
 
 	va_end(arp);
 
-#if defined (ARM_ALLOW_MULTI_CORE)
-	__sync_lock_release(&lock);
-#endif
-
 	return i;
 }
 
-/**
- *
- * @param format
- * @param ap
- * @return
- */
 int vprintf(const char *fmt, va_list arp) {
 	int i;
 
@@ -502,12 +486,6 @@ int vprintf(const char *fmt, va_list arp) {
 	return i;
 }
 
-/**
- *
- * @param str
- * @param fmt
- * @return
- */
 int sprintf(char *str, const char *fmt, ...) {
 	int i;
 	va_list arp;
@@ -525,13 +503,6 @@ int sprintf(char *str, const char *fmt, ...) {
 	return i;
 }
 
-/**
- *
- * @param str
- * @param fmt
- * @param ap
- * @return
- */
 int vsprintf(char *str, const char *fmt, va_list ap) {
 	int i;
 
@@ -545,13 +516,6 @@ int vsprintf(char *str, const char *fmt, va_list ap) {
 	return i;
 }
 
-/**
- *
- * @param str
- * @param size
- * @param fmt
- * @return
- */
 int snprintf(char *str, size_t size, const char *fmt, ...) {
 	int i;
 	va_list arp;
@@ -570,14 +534,6 @@ int snprintf(char *str, size_t size, const char *fmt, ...) {
 
 }
 
-/**
- *
- * @param str
- * @param size
- * @param fmt
- * @param ap
- * @return
- */
 int vsnprintf(char *str, size_t size, const char *fmt, va_list ap) {
 	int i;
 

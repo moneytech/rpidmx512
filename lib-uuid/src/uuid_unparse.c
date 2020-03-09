@@ -36,7 +36,7 @@
  * DAMAGE.
  * %End-Header%
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -59,15 +59,19 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <uuid/uuid.h>
 #include <assert.h>
 
-#include "uuid.h"
 #include "uuid_internal.h"
 
-#include "util.h"
+#ifndef ALIGNED
+ #define ALIGNED __attribute__ ((aligned (4)))
+#endif
 
-static const char *fmt_lower = "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x";
-static const char *fmt_upper = "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X";
+static const char *fmt_lower ALIGNED = "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x";
+static const char *fmt_upper ALIGNED = "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X";
 
 #ifdef UUID_UNPARSE_DEFAULT_UPPER
 #define FMT_DEFAULT fmt_upper
@@ -75,11 +79,6 @@ static const char *fmt_upper = "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X
 #define FMT_DEFAULT fmt_lower
 #endif
 
-/**
- *
- * @param in
- * @param uu
- */
 static void uuid_unpack(const uuid_t in, struct uuid *uu) {
 	const uint8_t *ptr = in;
 	uint32_t tmp;
@@ -107,12 +106,6 @@ static void uuid_unpack(const uuid_t in, struct uuid *uu) {
 	memcpy(uu->node, ptr, 6);
 }
 
-/**
- *
- * @param uu
- * @param out
- * @param fmt
- */
 static void uuid_unparse_x(const uuid_t uu, char *out, const char *fmt) {
 	struct uuid uuid;
 
@@ -127,29 +120,14 @@ static void uuid_unparse_x(const uuid_t uu, char *out, const char *fmt) {
 			uuid.node[5]);
 }
 
-/**
- *
- * @param uu
- * @param out
- */
 void uuid_unparse_lower(const uuid_t uu, char *out) {
 	uuid_unparse_x(uu, out, fmt_lower);
 }
 
-/**
- *
- * @param uu
- * @param out
- */
 void uuid_unparse_upper(const uuid_t uu, char *out) {
 	uuid_unparse_x(uu, out, fmt_upper);
 }
 
-/**
- *
- * @param uu
- * @param out
- */
 void uuid_unparse(const uuid_t uu, char *out) {
 	uuid_unparse_x(uu, out, FMT_DEFAULT);
 }

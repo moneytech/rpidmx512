@@ -36,7 +36,7 @@
  * DAMAGE.
  * %End-Header%
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -59,18 +59,32 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <ctype.h>
+#include <string.h>
+#include <uuid/uuid.h>
 #include <assert.h>
 
-#include "uuid.h"
 #include "uuid_internal.h"
 
-#include "util.h"
+static uint32_t hex_uint32(const char *s) {
+	uint32_t ret = 0;
+	uint8_t nibble;
 
-/**
- *
- * @param uu
- * @param ptr
- */
+	while (*s != '\0') {
+		char d = *s;
+
+		if (isxdigit((int) d) == 0) {
+			break;
+		}
+
+		nibble = d > '9' ? ((uint8_t) d | (uint8_t) 0x20) - (uint8_t) 'a' + (uint8_t) 10 : (uint8_t) (d - '0');
+		ret = (ret << 4) | nibble;
+		s++;
+	}
+
+	return ret;
+}
+
 static void uuid_pack(const struct uuid *uu, uuid_t ptr) {
 	uint32_t tmp;
 	unsigned char *out = ptr;
@@ -104,12 +118,6 @@ static void uuid_pack(const struct uuid *uu, uuid_t ptr) {
 	memcpy(out + 10, uu->node, 6);
 }
 
-/**
- *
- * @param in
- * @param uu
- * @return
- */
 int uuid_parse(const char *in, uuid_t uu) {
 	struct uuid uuid;
 	int i;
@@ -118,7 +126,7 @@ int uuid_parse(const char *in, uuid_t uu) {
 
 	assert(in != NULL);
 
-	if (strlen(in) != UUID_STRING_LENGTH) {
+	if (strlen(in) != 36) {
 		return -1;
 	}
 
@@ -161,5 +169,3 @@ int uuid_parse(const char *in, uuid_t uu) {
 
 	return 0;
 }
-
-

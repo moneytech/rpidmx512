@@ -3,7 +3,7 @@
  *
  */
 
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,11 +29,20 @@
 
 #include <stdint.h>
 
+enum {
+	E131_MAX_PORTS = 32
+};
+
+enum TE131PortDir {
+	E131_INPUT_PORT,
+	E131_OUTPUT_PORT,
+	E131_DISABLE_PORT
+};
+
 ///< ANSI E1.31 — 2016 Entertainment Technology
 ///< Lightweight streaming protocol for transport of DMX512 using ACN
 
-
-// TODO Update section references to 2016
+// TODO Update section references to 2018
 
 /**
  * 3.2 Universe: A set of up to 512 data slots identified by universe number. 
@@ -85,7 +94,7 @@ enum TVectorDMP {
 /**
  * Merge is implemented in either LTP or HTP mode
  */
-enum TMerge {
+enum TE131Merge {
 	E131_MERGE_HTP,		///< Highest Takes Precedence (HTP)
 	E131_MERGE_LTP		///< Latest Takes Precedence (LTP)
 };
@@ -98,6 +107,7 @@ enum TMerge {
  */
 enum TPriority {
 	E131_PRIORITY_LOWEST	= 1,	///<
+	E131_PRIORITY_DEFAULT	= 100,	///<
 	E131_PRIORITY_HIGHEST	= 200	///<
 };
 

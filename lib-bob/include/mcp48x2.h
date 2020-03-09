@@ -32,7 +32,6 @@
 #define MCP48X2_SPI_SPEED_DEFAULT_HZ	15000000	///< 15 MHz
 
 #define MCP4802_DATA(x)			((uint16_t)((uint8_t)(x) << 4))
-#define MCP4822_DATA(x)			((uint16_t)((uint16_t)(x) & 0x0FFF))
 
 #define MCP48X2_WRITE_DAC_A		((uint16_t)(0 << 15))
 #define MCP48X2_WRITE_DAC_B		((uint16_t)(1 << 15))

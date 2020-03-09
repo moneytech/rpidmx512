@@ -2,7 +2,7 @@
  * @file bcm2835_wdog.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +24,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "bcm2835.h"
 
@@ -33,11 +34,6 @@
 #define BCM2835_PM_WDOG_RSTC_WRCFG_CLR          ((uint32_t)0xffffffcf)	///<
 #define BCM2835_PM_WDOG_RSTC_WRCFG_FULL_RESET	((uint32_t)0x00000020)	///<
 
-/**
- * @ingroup watchdog
- *
- * @param timeout
- */
 inline static void bcm2835_wdog_start(const uint32_t timeout) {
 	uint32_t rstc;
 
@@ -46,28 +42,22 @@ inline static void bcm2835_wdog_start(const uint32_t timeout) {
 	BCM2835_PM_WDOG->RSTC = BCM2835_PM_WDOG_PASSWORD | (rstc & BCM2835_PM_WDOG_RSTC_WRCFG_CLR) | BCM2835_PM_WDOG_RSTC_WRCFG_FULL_RESET;
 }
 
-/**
- * @ingroup watchdog
- *
- */
+static bool is_started = false;
+
 void bcm2835_watchdog_stop(void) {
 	BCM2835_PM_WDOG->RSTC = BCM2835_PM_WDOG_PASSWORD | BCM2835_PM_WDOG_RSTC_RESET;
+	is_started = false;
 }
 
 #define WDOG_TIMEOUT 0x0FFFF
 
-/**
- * @ingroup watchdog
- *
- */
 void bcm2835_watchdog_init(void) {
 	bcm2835_wdog_start(WDOG_TIMEOUT);
+	is_started = true;
 }
 
-/**
- * @ingroup watchdog
- *
- */
 void bcm2835_watchdog_feed(void) {
-	bcm2835_wdog_start(WDOG_TIMEOUT);
+	if (is_started) {
+		bcm2835_wdog_start(WDOG_TIMEOUT);
+	}
 }

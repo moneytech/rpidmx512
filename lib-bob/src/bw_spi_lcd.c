@@ -2,7 +2,7 @@
  * @file bw_spi_lcd.c
  *
  */
-/* Copyright (C) 2016, 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,36 +24,55 @@
  */
 
 #include <stdint.h>
+#include <string.h>
+#include <stdbool.h>
 
-#include "bcm2835.h"
-
-#include "bcm2835_spi.h"
-#include "bcm2835_aux_spi.h"
+#include "bob.h"
 
 #include "bw.h"
-#include "bw_lcd.h"
+#include "bw_spi.h"
 #include "bw_spi_lcd.h"
 
-#include "device_info.h"
+#define BW_LCD_SPI_BYTE_WAIT_US		12
 
-#define BW_LCD_SPI_BYTE_WAIT_US			10		///<
+#if defined (BARE_METAL)
+static uint32_t spi_write_us = (uint32_t) 0;
+#endif
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @return
- */
-void bw_spi_lcd_start(device_info_t *device_info) {
+inline static void spi_write(const char *buffer, uint32_t size) {
+#if defined (BARE_METAL)
+ #if defined (H3)
+	const uint32_t elapsed = h3_hs_timer_lo_us() - spi_write_us;
+ #else
+	const uint32_t elapsed = BCM2835_ST->CLO - spi_write_us;
+ #endif
 
-	if (device_info->slave_address == (uint8_t) 0) {
+	if (elapsed < BW_LCD_SPI_BYTE_WAIT_US) {
+		udelay(BW_LCD_SPI_BYTE_WAIT_US - elapsed);
+	}
+#else
+	udelay(BW_LCD_SPI_BYTE_WAIT_US);
+#endif
+	FUNC_PREFIX(spi_writenb(buffer, size));
+#if defined (BARE_METAL)
+ #if defined (H3)
+	spi_write_us = h3_hs_timer_lo_us();
+ #else
+	spi_write_us = BCM2835_ST->CLO;
+ #endif
+#endif
+}
+
+bool bw_spi_lcd_start(device_info_t *device_info) {
+
+	if (device_info->slave_address == 0) {
 		device_info->slave_address = BW_LCD_DEFAULT_SLAVE_ADDRESS;
 	}
 
-	if (device_info->speed_hz == (uint32_t) 0) {
-		device_info->speed_hz = (uint32_t) BW_LCD_SPI_SPEED_DEFAULT_HZ;
+	if (device_info->speed_hz == 0) {
+		device_info->speed_hz = BW_LCD_SPI_SPEED_DEFAULT_HZ;
 	} else if (device_info->speed_hz > (uint32_t) BW_LCD_SPI_SPEED_MAX_HZ) {
-		device_info->speed_hz = (uint32_t) BW_LCD_SPI_SPEED_MAX_HZ;
+		device_info->speed_hz = BW_LCD_SPI_SPEED_MAX_HZ;
 	}
 
 	if (device_info->chip_select >= SPI_CS2) {
@@ -61,19 +80,27 @@ void bw_spi_lcd_start(device_info_t *device_info) {
 		bcm2835_aux_spi_begin();
 		device_info->internal.clk_div = bcm2835_aux_spi_CalcClockDivider(device_info->speed_hz);
 	} else {
-		bcm2835_spi_begin();
-		device_info->internal.clk_div = (uint16_t)((uint32_t) BCM2835_CORE_CLK_HZ / device_info->speed_hz);
+		FUNC_PREFIX(spi_begin());;
 	}
+
+	char id[BW_ID_STRING_LENGTH+1];
+	bw_spi_read_id(device_info, id);
+
+	if (memcmp(id, "spi_lcd", 7) == 0) {
+#if defined (BARE_METAL)
+ #if defined (H3)
+		spi_write_us = h3_hs_timer_lo_us();
+ #else
+		spi_write_us = BCM2835_ST->CLO;
+ #endif
+#endif
+		return true;
+	}
+
+	return false;
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param line
- * @param pos
- */
-void bw_spi_lcd_set_cursor(const device_info_t *device_info, const uint8_t line, const uint8_t pos) {
+void bw_spi_lcd_set_cursor(const device_info_t *device_info, uint8_t line, uint8_t pos) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_WRITE_MOVE_CURSOR, (char) 0x00 };
 
 	cmd[0] = (char) device_info->slave_address;
@@ -83,19 +110,13 @@ void bw_spi_lcd_set_cursor(const device_info_t *device_info, const uint8_t line,
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param text
- * @param length
- */
 void bw_spi_lcd_text(const device_info_t *device_info, const char *text, uint8_t length) {
 	char data[BW_LCD_MAX_CHARACTERS + 2];
 	uint8_t i;
@@ -115,69 +136,33 @@ void bw_spi_lcd_text(const device_info_t *device_info, const char *text, uint8_t
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(data, length + 2);
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(data, length + 2);
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(data, length + 2);
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param text
- * @param length
- */
-void bw_spi_lcd_text_line_1(const device_info_t *device_info, const char *text, const uint8_t length) {
+void bw_spi_lcd_text_line_1(const device_info_t *device_info, const char *text, uint8_t length) {
 	bw_spi_lcd_set_cursor(device_info, 0, 0);
-	udelay(BW_LCD_SPI_BYTE_WAIT_US);
 	bw_spi_lcd_text(device_info, text, length);
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param text
- * @param length
- */
-void bw_spi_lcd_text_line_2(const device_info_t *device_info, const char *text,	const uint8_t length) {
+void bw_spi_lcd_text_line_2(const device_info_t *device_info, const char *text,	uint8_t length) {
 	bw_spi_lcd_set_cursor(device_info, 1, 0);
-	udelay(BW_LCD_SPI_BYTE_WAIT_US);
 	bw_spi_lcd_text(device_info, text, length);
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param text
- * @param length
- */
-void bw_spi_lcd_text_line_3(const device_info_t *device_info, const char *text,	const uint8_t length) {
+void bw_spi_lcd_text_line_3(const device_info_t *device_info, const char *text,	uint8_t length) {
 	bw_spi_lcd_set_cursor(device_info, 2, 0);
-	udelay(BW_LCD_SPI_BYTE_WAIT_US);
 	bw_spi_lcd_text(device_info, text, length);
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param text
- * @param length
- */
-void bw_spi_lcd_text_line_4(const device_info_t *device_info, const char *text,	const uint8_t length) {
+void bw_spi_lcd_text_line_4(const device_info_t *device_info, const char *text,	uint8_t length) {
 	bw_spi_lcd_set_cursor(device_info, 3, 0);
-	udelay(BW_LCD_SPI_BYTE_WAIT_US);
 	bw_spi_lcd_text(device_info, text, length);
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- */
 void bw_spi_lcd_cls(const device_info_t *device_info) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_WRITE_CLEAR_SCREEN, (char) ' ' };
 
@@ -187,19 +172,13 @@ void bw_spi_lcd_cls(const device_info_t *device_info) {
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param value
- */
-void bw_spi_lcd_set_contrast(const device_info_t *device_info, const uint8_t value) {
+void bw_spi_lcd_set_contrast(const device_info_t *device_info, uint8_t value) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_WRITE_SET_CONTRAST, (char) 0x00 };
 
 	cmd[0] = (char) device_info->slave_address;
@@ -209,19 +188,14 @@ void bw_spi_lcd_set_contrast(const device_info_t *device_info, const uint8_t val
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param value
- */
-void bw_spi_lcd_set_backlight(const device_info_t *device_info,	const uint8_t value) {
+void bw_spi_lcd_set_backlight(const device_info_t *device_info,	uint8_t value) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_WRITE_SET_BACKLIGHT, (char) 0x00 };
 
 	cmd[0] = (char) device_info->slave_address;
@@ -231,17 +205,13 @@ void bw_spi_lcd_set_backlight(const device_info_t *device_info,	const uint8_t va
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- */
 void bw_spi_lcd_reinit(const device_info_t *device_info) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_WRITE_REINIT_LCD, (char) ' ' };
 
@@ -251,18 +221,12 @@ void bw_spi_lcd_reinit(const device_info_t *device_info) {
 		bcm2835_aux_spi_setClockDivider(device_info->internal.clk_div);
 		bcm2835_aux_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_writenb(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param value
- */
 void bw_spi_lcd_get_backlight(const device_info_t *device_info, uint8_t *value) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_READ_CURRENT_BACKLIGHT, (char) 0x00 };
 
@@ -272,20 +236,15 @@ void bw_spi_lcd_get_backlight(const device_info_t *device_info, uint8_t *value) 
 		bcm2835_aux_spi_setClockDivider(bcm2835_aux_spi_CalcClockDivider(32000));
 		bcm2835_aux_spi_transfern(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_transfern(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 
 	*value = (uint8_t)cmd[2];
 }
 
-/**
- * @ingroup SPI-LCD
- *
- * @param device_info
- * @param value
- */
 void bw_spi_lcd_get_contrast(const device_info_t *device_info, uint8_t *value) {
 	char cmd[] = { (char) 0x00, (char) BW_PORT_READ_CURRENT_CONTRAST, (char) 0x00 };
 
@@ -295,10 +254,11 @@ void bw_spi_lcd_get_contrast(const device_info_t *device_info, uint8_t *value) {
 		bcm2835_aux_spi_setClockDivider(bcm2835_aux_spi_CalcClockDivider(32000));
 		bcm2835_aux_spi_transfern(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	} else {
-		bcm2835_spi_setClockDivider(device_info->internal.clk_div);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_transfern(cmd, sizeof(cmd) / sizeof(cmd[0]));
+		FUNC_PREFIX(spi_set_speed_hz(device_info->speed_hz));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		spi_write(cmd, sizeof(cmd) / sizeof(cmd[0]));
 	}
 
-	*value = (uint8_t)cmd[2];
+	*value = (uint8_t) cmd[2];
 }

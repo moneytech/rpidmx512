@@ -1,4 +1,6 @@
 #
-EXTRA_INCLUDES = ../lib-bob/include ../lib-hal/include ../lib-fb/include ../lib-utils/include ../lib-bcm2835/include ../lib-lightset/include
+DEFINES = NDEBUG
+#
+EXTRA_INCLUDES = ../lib-rdm/include ../lib-properties/include ../lib-console/include
 #
 include ../firmware-template/lib/Rules.mk

@@ -7,7 +7,7 @@
  * https://github.com/jarzebski/Arduino-INA219
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2018 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,12 +31,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "bcm2835_i2c.h"
-#include "i2c.h"
+#include "bob.h"
 
 #include "ina219.h"
-
-#include "device_info.h"
 
 #define CEILING_POS(X) ((X-(int)(X)) > 0 ? (int)(X+1) : (int)(X))
 
@@ -74,31 +71,18 @@ struct _ina219_info {
 
 #define INA219_READ_REG_DELAY_US	800		///<
 
-/**
- *
- * @param device_info
- */
 static void i2c_setup(const device_info_t *device_info) {
-	bcm2835_i2c_setSlaveAddress(device_info->slave_address);
+	i2c_set_address(device_info->slave_address);
 
 	if (device_info->fast_mode) {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_626);
+		i2c_set_baudrate(I2C_FULL_SPEED);
 	} else {
-		bcm2835_i2c_setClockDivider(BCM2835_I2C_CLOCK_DIVIDER_2500);
+		i2c_set_baudrate(I2C_NORMAL_SPEED);
 	}
 }
 
-/**
- * Instantiates a new INA219
- *
- * Configures to INA219 to be able to measure up to 32V and 2A of current.
- *
- * @param device_info
- * @return
- */
-const bool ina219_start(device_info_t *device_info) {
-
-	bcm2835_i2c_begin();
+bool ina219_start(device_info_t *device_info) {
+	i2c_begin();
 
 	if (device_info->slave_address == (uint8_t) 0) {
 		device_info->slave_address = INA219_I2C_DEFAULT_SLAVE_ADDRESS;
@@ -121,15 +105,6 @@ const bool ina219_start(device_info_t *device_info) {
 	return true;
 }
 
-/**
- *
- * @param device_info
- * @param range
- * @param gain
- * @param bus_res
- * @param shunt_res
- * @param mode
- */
 void ina219_configure(const device_info_t *device_info, ina219_range_t range, ina219_gain_t gain, ina219_bus_res_t bus_res, ina219_shunt_res_t shunt_res, ina219_mode_t mode) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 	const uint16_t config = range | gain| bus_res | shunt_res | mode;
@@ -162,12 +137,6 @@ void ina219_configure(const device_info_t *device_info, ina219_range_t range, in
     i2c_write_reg_uint16(INA219_REG_CONFIG, config);
 }
 
-/**
- *
- * @param device_info
- * @param r_shunt_value
- * @param i_max_expected
- */
 void ina219_calibrate(const device_info_t *device_info, float r_shunt_value, float i_max_expected) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 	const float minimum_lsb = i_max_expected / 32767;
@@ -189,13 +158,7 @@ void ina219_calibrate(const device_info_t *device_info, float r_shunt_value, flo
 	i2c_write_reg_uint16(INA219_REG_CALIBRATION, calibration_value);
 }
 
-/**
- * Gets the raw shunt voltage (16-bit signed integer, value +-32767)
- *
- * @param device_info
- * @return
- */
-const int16_t ina219_get_shunt_voltage_raw(const device_info_t *device_info) {
+int16_t ina219_get_shunt_voltage_raw(const device_info_t *device_info) {
 	int16_t voltage;
 
 	i2c_setup(device_info);
@@ -205,25 +168,13 @@ const int16_t ina219_get_shunt_voltage_raw(const device_info_t *device_info) {
 	return voltage;
 }
 
-/**
- * Gets the shunt voltage (V)
- *
- * @param device_info
- * @return
- */
-const float ina219_get_shunt_voltage(const device_info_t *device_info) {
+float ina219_get_shunt_voltage(const device_info_t *device_info) {
 	const int16_t value = ina219_get_shunt_voltage_raw(device_info);
 
 	return ((float) value / (float) 100000);
 }
 
-/**
- * Gets the raw bus voltage (16-bit signed integer, value +-32767)
- *
- * @param device_info
- * @return
- */
-const int16_t ina219_get_bus_voltage_raw(const device_info_t *device_info) {
+int16_t ina219_get_bus_voltage_raw(const device_info_t *device_info) {
 	uint16_t voltage;
 
 	i2c_setup(device_info);
@@ -234,13 +185,7 @@ const int16_t ina219_get_bus_voltage_raw(const device_info_t *device_info) {
 	return ((int16_t) voltage * (int16_t) 4);
 }
 
-/**
- * Gets the bus voltage (V)
- *
- * @param device_info
- * @return
- */
-const float ina219_get_bus_voltage(const device_info_t *device_info) {
+float ina219_get_bus_voltage(const device_info_t *device_info) {
 	int16_t value;
 
 	i2c_setup(device_info);
@@ -250,12 +195,7 @@ const float ina219_get_bus_voltage(const device_info_t *device_info) {
 	return ((float) value * (float) 0.001);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ina219_range_t ina219_get_range(const device_info_t *device_info) {
+ina219_range_t ina219_get_range(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -266,12 +206,7 @@ const ina219_range_t ina219_get_range(const device_info_t *device_info) {
 	return (ina219_range_t) value;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ina219_gain_t ina219_get_gain(const device_info_t *device_info) {
+ina219_gain_t ina219_get_gain(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -282,12 +217,7 @@ const ina219_gain_t ina219_get_gain(const device_info_t *device_info) {
 	return (ina219_gain_t) value;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ina219_bus_res_t ina219_get_bus_res(const device_info_t *device_info) {
+ina219_bus_res_t ina219_get_bus_res(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -298,12 +228,7 @@ const ina219_bus_res_t ina219_get_bus_res(const device_info_t *device_info) {
 	return (ina219_bus_res_t) value;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ina219_shunt_res_t ina219_get_shunt_res(const device_info_t *device_info) {
+ina219_shunt_res_t ina219_get_shunt_res(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -314,12 +239,7 @@ const ina219_shunt_res_t ina219_get_shunt_res(const device_info_t *device_info) 
 	return (ina219_shunt_res_t) value;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const ina219_mode_t ina219_get_mode(const device_info_t *device_info) {
+ina219_mode_t ina219_get_mode(const device_info_t *device_info) {
 	uint16_t value;
 
 	i2c_setup(device_info);
@@ -330,23 +250,13 @@ const ina219_mode_t ina219_get_mode(const device_info_t *device_info) {
 	return (ina219_mode_t) value;
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_max_possible_current(const device_info_t *device_info) {
+float ina219_get_max_possible_current(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	return (ina219_info[i].v_shunt_max / ina219_info[i].r_shunt);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_max_current(const device_info_t *device_info) {
+float ina219_get_max_current(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	const float max_current = ina219_info[i].current_lsb * 32767;
@@ -359,12 +269,7 @@ const float ina219_get_max_current(const device_info_t *device_info) {
 	}
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_max_shunt_voltage(const device_info_t *device_info) {
+float ina219_get_max_shunt_voltage(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	const float max_voltage = ina219_get_max_current(device_info) * ina219_info[i].r_shunt;
@@ -377,23 +282,13 @@ const float ina219_get_max_shunt_voltage(const device_info_t *device_info) {
 
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_max_power(const device_info_t *device_info) {
+float ina219_get_max_power(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	return (ina219_get_max_current(device_info) * ina219_info[i].v_bus_max);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_shunt_current(const device_info_t *device_info) {
+float ina219_get_shunt_current(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	i2c_setup(device_info);
@@ -401,12 +296,7 @@ const float ina219_get_shunt_current(const device_info_t *device_info) {
 	return ((float)((int16_t)i2c_read_reg_uint16_delayus(INA219_REG_CURRENT, (uint32_t) INA219_READ_REG_DELAY_US)) * ina219_info[i].current_lsb);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const float ina219_get_bus_power(const device_info_t *device_info) {
+float ina219_get_bus_power(const device_info_t *device_info) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 
 	i2c_setup(device_info);
@@ -414,23 +304,12 @@ const float ina219_get_bus_power(const device_info_t *device_info) {
 	return ((float)((int16_t)i2c_read_reg_uint16_delayus(INA219_REG_POWER, (uint32_t) INA219_READ_REG_DELAY_US)) * ina219_info[i].power_lsb);
 }
 
-/**
- *
- * @param device_info
- * @return
- */
-const uint16_t ina219_get_calibration(const device_info_t *device_info) {
+uint16_t ina219_get_calibration(const device_info_t *device_info) {
 	i2c_setup(device_info);
 
 	return i2c_read_reg_uint16(INA219_REG_CALIBRATION);
 }
 
-/**
- *
- * @param device_info
- * @param current_lsb
- * @param power_lsb
- */
 void ina219_get_lsb(const device_info_t *device_info, float *current_lsb, float *power_lsb) {
 	const uint8_t i = device_info->slave_address & 0x0F;
 

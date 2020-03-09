@@ -2,7 +2,7 @@
  * @file bw_spi.c
  *
  */
-/* Copyright (C) 2017 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2017-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,22 +24,14 @@
  */
 
 #include <stddef.h>
+#ifndef NDEBUG
+ #include <stdio.h>
+#endif
 
-#include "bcm2835_spi.h"
-#include "bcm2835_aux_spi.h"
+#include "bob.h"
 
-#include <device_info.h>
+#include "bw.h"
 
-#include <bw.h>
-
-/**
- * @ingroup SPI
- *
- * Gets the identification string.
- *
- * @param device_info
- * @param id
- */
 void bw_spi_read_id(const device_info_t *device_info, char *id) {
 	char buffer[BW_ID_STRING_LENGTH + 2];
 	char *s1, *s2;
@@ -56,9 +48,11 @@ void bw_spi_read_id(const device_info_t *device_info, char *id) {
 		bcm2835_aux_spi_setClockDivider(bcm2835_aux_spi_CalcClockDivider(32000));
 		bcm2835_aux_spi_transfern(buffer, sizeof(buffer) / sizeof(buffer[0]));
 	} else {
-		bcm2835_spi_setClockDivider(5000);
-		bcm2835_spi_chipSelect(device_info->chip_select);
-		bcm2835_spi_transfern(buffer, sizeof(buffer) / sizeof(buffer[0]));
+		FUNC_PREFIX(spi_set_speed_hz(50000));
+		FUNC_PREFIX(spi_setChipSelectPolarity(device_info->chip_select, LOW));
+		FUNC_PREFIX(spi_chipSelect(device_info->chip_select));
+		FUNC_PREFIX(spi_setDataMode(SPI_MODE0));
+		FUNC_PREFIX(spi_transfern(buffer, sizeof(buffer) / sizeof(buffer[0])));
 	}
 
 	s1 = (char *) id;
@@ -73,4 +67,8 @@ void bw_spi_read_id(const device_info_t *device_info, char *id) {
 		*s1++ = '\0';
 		--n;
 	}
+
+#ifndef NDEBUG
+	printf("%s:%s device_info->chip_select=%d, id=%s\n", __FILE__, __FUNCTION__, (int) device_info->chip_select, id);
+#endif
 }

@@ -2,7 +2,7 @@
  * @file lightset.cpp
  *
  */
-/* Copyright (C) 2016 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
+/* Copyright (C) 2016-2019 by Arjan van Vught mailto:info@raspberrypi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,15 @@
 
 #include "lightset.h"
 
-LightSet::~LightSet (void)
-{
+LightSet *LightSet::s_pThis = 0;
 
+LightSet::LightSet(void): m_pLightSetDisplay(0) {
+	s_pThis = this;
+}
+
+LightSet::~LightSet(void) {
+}
+
+void LightSet::Print(void) {
+	// override
 }
